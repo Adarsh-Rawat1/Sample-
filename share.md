@@ -1,3 +1,107 @@
+The red squiggle is simply telling you **“the ApexCharts.Blazor wrapper isn’t referenced.”**
+Right now `@using ApexCharts` and the `<ApexChart …>` tag helper belong to that wrapper NuGet, so the compiler can’t find them.
+
+You have **two easy fixes — pick one**:
+
+| Option                                                                                         | What you do                                                                                                                                                             | When to choose                                   |
+| ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **① Add the free NuGet wrapper** (**fastest**)                                                 | \`\`\`bash                                                                                                                                                              |                                                  |
+| dotnet add package ApexCharts.Blazor                                                           |                                                                                                                                                                         |                                                  |
+| \`\`\`<br>Re-build → the error disappears; keep your existing `ChartHost.razor` exactly as-is. | You’re fine adding one small open-source package (no cost).                                                                                                             |                                                  |
+| **② Drop the wrapper & call JS directly**                                                      | Remove `@using ApexCharts` and the `<ApexChart>` tag; instead render a `<div id="chart-@Meta.Id">` and invoke ApexCharts via **IJSRuntime**. (Sample code shown below.) | If you absolutely cannot add any NuGet packages. |
+
+---
+
+### Quick path ① – install the wrapper (recommended)
+
+```bash
+# in project folder
+dotnet add package ApexCharts.Blazor
+dotnet build
+```
+
+Nothing else changes. The wrapper just calls the global `apexcharts.min.js` you already placed in *wwwroot*.
+
+---
+
+### Path ② – pure JS-Interop (only if you really need to)
+
+1. **Create** `wwwroot/js/chartInterop.js`
+
+   ```js
+   export function render(meta, payload) {
+     const opts = {
+       chart: { type: meta.graph.type, height: 400 },
+       series: meta.graph.y.map(y => ({
+         name: y,
+         data: payload.rows.map(r => r[y])
+       })),
+       xaxis: { categories: payload.rows.map(r => r[meta.graph.x]) }
+     };
+     const el = document.getElementById(`chart-${meta.id}`);
+     if (el.__chart) { el.__chart.updateOptions(opts); return; }
+     el.__chart = new ApexCharts(el, opts);
+     el.__chart.render();
+   }
+   ```
+
+2. **Reference** it after `apexcharts.min.js` in *App.razor*
+
+   ```html
+   <script src="apexcharts/apexcharts.min.js"></script>
+   <script src="js/chartInterop.js"></script>
+   ```
+
+3. **Rewrite** `ChartHost.razor`
+
+   ```razor
+   @inject IJSRuntime JS
+   @inject HttpClient Http
+   <div class="card mb-4 p-3">
+     <h5>@Meta.Title <button class="btn btn-sm" @onclick="Refresh">🔄</button></h5>
+     <div id="chart-@Meta.Id"></div>
+   </div>
+
+   @code {
+       [Parameter] public ChartMeta Meta { get; set; } = default!;
+       protected override async Task OnAfterRenderAsync(bool first)
+       {
+           if (first) await LoadAndRender();
+       }
+       private async Task Refresh()
+       {
+           await Http.PostAsync($"/api/chartdata/{Meta.Id}/refresh", null);
+           await LoadAndRender();
+       }
+       private async Task LoadAndRender()
+       {
+           var payload = await Http.GetFromJsonAsync<JsonElement>(
+               $"/chartcache/{Meta.Id}.json?nocache={DateTime.UtcNow.Ticks}");
+           await JS.InvokeVoidAsync("render", Meta, payload);
+       }
+   }
+   ```
+
+The component now renders through your own JS file, no wrapper needed.
+
+---
+
+### TL;DR
+
+* **Simplest**: add the NuGet → error gone, keep code.
+* **If packages are forbidden**: replace the wrapper with the JS-interop snippet above.
+
+
+
+
+
+
+
+
+
+
+
+
 @using StarTrends.Shared
 <!DOCTYPE html>
 <html lang="en">
