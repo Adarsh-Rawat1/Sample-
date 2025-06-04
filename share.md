@@ -1,3 +1,36 @@
+@using StarTrends.Shared
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+
+    <!-- existing styles -->
+    <link rel="stylesheet" href="bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="app.css" />
+
+    <!-- ① ApexCharts CSS  -->
+    <link rel="stylesheet" href="apexcharts/apexcharts.css" />
+
+    <HeadOutlet />          <!-- leave this where it is -->
+</head>
+
+<body>
+    <Routes />
+
+    <!-- ② ApexCharts JS – before the Blazor framework script -->
+    <script src="apexcharts/apexcharts.min.js"></script>
+
+    <!-- if you made your own helper, add it just after -->
+    <!-- <script src="js/chartInterop.js"></script> -->
+
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>
+
+
+
 Below is a **clean “green-field” recipe** that will spin up a Blazor Server (.NET 8) dashboard with exactly **two pages** and **one chart each**, wired to Oracle through a connection string in *appsettings.json*.
 Everything else (more pages / charts / refresh rules) can be added later by dropping files.
 
