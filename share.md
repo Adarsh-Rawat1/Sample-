@@ -1,3 +1,9 @@
+{
+  "ConnectionStrings": {
+    "OracleDb": "Data Source=(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=eurvlid05098.xmp.net.intra)(PORT=1521)))(CONNECT_DATA=(SERVICE_NAME=381luk101)(SERVER=DEDICATED)));User Id=your_username;Password=your_password;"
+  }
+}
+
 Below is a **complete, self-contained** Blazor Server implementation (no NuGet wrappers) that:
 
 1. Reads chart definitions from JSON + SQL files
