@@ -1,7 +1,15 @@
-@using System.Linq
-@using System.Net.Http.Json
+To skip any HTTP round‐trip and just render charts directly on the server, have your `<ChartBlock>` call your `IChartService` instead of `HttpClient`. This way you’ll see the graphs (or “No data”) as soon as the service returns, with no network fetch at all.
+
+---
+
+## 1. Update `ChartBlock.razor`
+
+Replace your existing file with the version below:
+
+```razor
 @using StarTrendsDashboard.Shared
-@inject HttpClient Http
+@using Microsoft.JSInterop
+@inject IChartService ChartService
 @inject IJSRuntime JS
 
 <div class="mb-5">
@@ -28,15 +36,11 @@
   }
   else if (loadError)
   {
-    <div class="alert alert-danger">
-      Error loading data. Try again.
-    </div>
+    <div class="alert alert-danger">Error loading data. Try again.</div>
   }
   else if (hasNoData)
   {
-    <div class="alert alert-warning">
-      No data available.
-    </div>
+    <div class="alert alert-warning">No data available.</div>
   }
   else
   {
@@ -48,28 +52,26 @@
 @code {
   [Parameter] public ChartDefinition Definition { get; set; } = default!;
 
-  private bool isLoading;
-  private bool hasNoData;
-  private bool loadError;
-  private string LastUpdatedText = "";
-  private string elementId => $"chart_{Definition.ChartId}";
+  bool isLoading, hasNoData, loadError;
+  string LastUpdatedText = "";
+  string elementId   => $"chart_{Definition.ChartId}";
 
   protected override async Task OnInitializedAsync()
-  {
-    await Load();
-  }
+    => await Load();
 
   private async Task Load()
   {
     isLoading = true;
-    hasNoData = false;
-    loadError = false;
+    hasNoData  = false;
+    loadError  = false;
     StateHasChanged();
 
     try
     {
-      var cache = await Http.GetFromJsonAsync<ChartDataCache>($"api/chartdata/{Definition.ChartId}");
-      if (cache == null || cache.Rows == null || cache.Rows.Count == 0)
+      // Directly invoke your ChartService (no HTTP)
+      var cache = await ChartService.RefreshChartAsync(Definition.ChartId);
+
+      if (cache.Rows == null || cache.Rows.Count == 0)
       {
         hasNoData = true;
       }
@@ -89,6 +91,7 @@
     }
     catch
     {
+      // You can also log the exception here to diagnose SQL errors
       loadError = true;
     }
     finally
@@ -98,49 +101,83 @@
     }
   }
 
-  private object BuildBarOptions(ChartDataCache cache)
-  {
-    var labels = cache.Rows.Select(r => r.Label).ToArray();
-    var values = cache.Rows.Select(r => r.Value).ToArray();
+  private object BuildBarOptions(ChartDataCache c)
+    => new {
+        chart  = new { id = elementId, type = "bar", toolbar = new { show = true }, zoom = new { enabled = false } },
+        xaxis  = new { categories = c.Rows.Select(r => r.Label).ToArray() },
+        title  = new { text = Definition.Title, align = "left" },
+        series = new[] { new { name = Definition.ChartId, data = c.Rows.Select(r => r.Value).ToArray() } }
+      };
 
-    return new
-    {
-      chart   = new { id = elementId, type = "bar", toolbar = new { show = true }, zoom = new { enabled = false } },
-      xaxis   = new { categories = labels },
-      title   = new { text = Definition.Title, align = "left" },
-      series  = new[] { new { name = Definition.ChartId, data = values } }
-    };
-  }
+  private object BuildLineOptions(ChartDataCache c)
+    => new {
+        chart  = new { id = elementId, type = "line", toolbar = new { show = true }, zoom = new { enabled = true } },
+        xaxis  = new { categories = c.Rows.Select(r => r.Label).ToArray() },
+        title  = new { text = Definition.Title, align = "left" },
+        series = new[] { new { name = Definition.ChartId, data = c.Rows.Select(r => r.Value).ToArray() } }
+      };
 
-  private object BuildLineOptions(ChartDataCache cache)
-  {
-    var labels = cache.Rows.Select(r => r.Label).ToArray();
-    var values = cache.Rows.Select(r => r.Value).ToArray();
-
-    return new
-    {
-      chart   = new { id = elementId, type = "line", toolbar = new { show = true }, zoom = new { enabled = true } },
-      xaxis   = new { categories = labels },
-      title   = new { text = Definition.Title, align = "left" },
-      series  = new[] { new { name = Definition.ChartId, data = values } }
-    };
-  }
-
-  private object BuildScatterOptions(ChartDataCache cache)
-  {
-    var points = cache.Rows
-      .Select(r => new object[] {
-        DateTimeOffset.Parse(r.Label).ToUnixTimeMilliseconds(),
-        r.Value
-      })
-      .ToArray();
-
-    return new
-    {
-      chart   = new { id = elementId, type = "scatter", toolbar = new { show = true }, zoom = new { enabled = true } },
-      xaxis   = new { type = "datetime", labels = new { format = "dd MMM HH:mm" } },
-      title   = new { text = Definition.Title, align = "left" },
-      series  = new[] { new { name = Definition.ChartId, data = points } }
-    };
-  }
+  private object BuildScatterOptions(ChartDataCache c)
+    => new {
+        chart  = new { id = elementId, type = "scatter", toolbar = new { show = true }, zoom = new { enabled = true } },
+        xaxis  = new { type = "datetime", labels = new { format = "dd MMM HH:mm" } },
+        title  = new { text = Definition.Title, align = "left" },
+        series = new[] {
+          new {
+            name = Definition.ChartId,
+            data = c.Rows.Select(r =>
+               new object[] {
+                 DateTimeOffset.Parse(r.Label).ToUnixTimeMilliseconds(),
+                 r.Value
+               }).ToArray()
+          }
+        }
+      };
 }
+```
+
+### What changed
+
+* **Removed** `@inject HttpClient Http`.
+* **Added** `@inject IChartService ChartService`.
+* **Load()** now calls `ChartService.RefreshChartAsync(...)` directly.
+
+---
+
+## 2. Ensure `ChartService` is wired
+
+In **Program.cs**, make sure you have:
+
+```csharp
+builder.Services.AddSingleton<IChartService, ChartService>();
+// optional background poller
+builder.Services.AddHostedService<ChartPollingBackgroundService>();
+```
+
+so that Blazor can inject it into your component.
+
+---
+
+## 3. Verify your SQL & JSON
+
+* **chart-definitions.json** must list each chart (with correct `SqlFile` name and `ChartType`).
+* **ChartDefinitions/Queries** must contain those `.sql` files, and they should return at least one row.
+* If your SQL takes a while, the spinner will show until it finishes.
+
+You can also temporarily log inside the `catch`:
+
+```csharp
+catch (Exception ex)
+{
+    Console.WriteLine($"Error loading {Definition.ChartId}: {ex}");
+    loadError = true;
+}
+```
+
+so you can see any Oracle/SQL exceptions on your server console.
+
+---
+
+### Result
+
+With this change, no HTTP calls are made, so you’ll never need to watch the Network tab. As soon as each chart’s SQL returns data, the graph will render in the page. If there truly is no data, you’ll see the “No data available” alert; if there’s a real error (bad SQL, missing file, Oracle down), you’ll see the red “Error loading data” box.
