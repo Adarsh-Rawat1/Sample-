@@ -1,3 +1,4 @@
+@using System.Linq
 @using StarTrendsDashboard.Shared
 @inject IChartService ChartService
 @inject IJSRuntime JS
@@ -26,15 +27,19 @@
   }
   else if (loadError)
   {
-    <div class="alert alert-danger">Error loading data. Try again.</div>
+    <div class="alert alert-danger">
+      Error loading data. Try again.
+    </div>
   }
   else if (hasNoData)
   {
-    <div class="alert alert-warning">No data available.</div>
+    <div class="alert alert-warning">
+      No data available.
+    </div>
   }
   else
   {
-    <div id="@elementId" style="min-height:300px"></div>
+    <div id="@elementId" style="min-height:350px"></div>
     <p class="text-muted">@LastUpdatedText</p>
   }
 </div>
@@ -42,28 +47,31 @@
 @code {
   [Parameter] public ChartDefinition Definition { get; set; } = default!;
 
-  private bool isLoading, hasNoData, loadError;
+  private bool isLoading;
+  private bool loadError;
+  private bool hasNoData;
   private bool _needsRender;
+  private bool _hasRendered;
   private object? _pendingOptions;
   private string LastUpdatedText = "";
   private string elementId => $"chart_{Definition.ChartId}";
 
   protected override async Task OnInitializedAsync()
   {
-    await LoadData();
+    await LoadDataAsync();
   }
 
   private async Task Refresh()
   {
-    await LoadData();
+    await LoadDataAsync();
   }
 
-  private async Task LoadData()
+  private async Task LoadDataAsync()
   {
     isLoading = true;
     loadError = false;
     hasNoData = false;
-    _needsRender = false;       // reset until we have new data
+    _needsRender = false;
     StateHasChanged();
 
     try
@@ -76,7 +84,7 @@
       }
       else
       {
-        // Build the right ApexCharts options based on ChartType 
+        // Prepare the ApexCharts options object
         _pendingOptions = Definition.ChartType.ToLower() switch
         {
           "bar"     => BuildBarOptions(cache),
@@ -86,7 +94,7 @@
         };
 
         LastUpdatedText = $"Last updated: {cache.LastUpdatedUtc.ToLocalTime():g}";
-        _needsRender = true;    // signal OnAfterRenderAsync to draw the chart
+        _needsRender = true;
       }
     }
     catch
@@ -100,13 +108,17 @@
     }
   }
 
-  // This runs after each render. On the first render after data arrives, we invoke JS.
   protected override async Task OnAfterRenderAsync(bool firstRender)
   {
-    if (_needsRender && _pendingOptions is not null)
+    // Only invoke JS after prerender (i.e. on the first interactive render)
+    if (!_hasRendered && !firstRender)
     {
-      await JS.InvokeVoidAsync("apexInterop.renderChart", elementId, _pendingOptions);
-      _needsRender = false;  // ensure we only render once per data load
+      if (_needsRender && _pendingOptions is not null)
+      {
+        await JS.InvokeVoidAsync("apexInterop.renderChart", elementId, _pendingOptions);
+        _needsRender = false;
+      }
+      _hasRendered = true;
     }
   }
 
@@ -134,12 +146,10 @@
     series = new[] {
       new {
         name = Definition.ChartId,
-        data = c.Rows
-                .Select(r => new object[] {
-                   DateTimeOffset.Parse(r.Label).ToUnixTimeMilliseconds(),
-                   r.Value
-                })
-                .ToArray()
+        data = c.Rows.Select(r => new object[] {
+          DateTimeOffset.Parse(r.Label).ToUnixTimeMilliseconds(),
+          r.Value
+        }).ToArray()
       }
     }
   };
