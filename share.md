@@ -1,3 +1,93 @@
+@using StarTrendsDashboard.Shared
+@using System.Net.Http.Json
+@using Microsoft.JSInterop
+@using Microsoft.AspNetCore.Components
+
+<div class="mb-5">
+  <h4>@Definition.Title</h4>
+
+  <button class="btn btn-outline-primary mb-2" @onclick="Load" disabled="@isLoading">
+    @if (isLoading)
+    {
+      <span>Loading…</span>
+    }
+    else
+    {
+      <span>Refresh</span>
+    }
+  </button>
+
+  @if (isLoading)
+  {
+    <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">Loading...</span>
+    </div>
+  }
+  else if (loadError)
+  {
+    <div class="alert alert-danger">Error loading data. Try again.</div>
+  }
+  else if (hasNoData)
+  {
+    <div class="alert alert-warning">No data available.</div>
+  }
+  else
+  {
+    <div id="@elementId" style="min-height:300px"></div>
+    <p class="text-muted">@LastUpdatedText</p>
+  }
+</div>
+
+@code {
+  [Parameter] public ChartDefinition Definition { get; set; } = default!;
+  private bool isLoading, hasNoData, loadError;
+  private string LastUpdatedText = "";
+  private string elementId => $"chart_{Definition.ChartId}";
+
+  protected override async Task OnInitializedAsync()
+  {
+    await Load();
+  }
+
+  private async Task Load()
+  {
+    isLoading = true; hasNoData = false; loadError = false; StateHasChanged();
+    try
+    {
+      var cache = await Http.GetFromJsonAsync<ChartDataCache>($"api/chartdata/{Definition.ChartId}");
+      if (cache?.Rows?.Count == 0)
+      {
+        hasNoData = true;
+      }
+      else
+      {
+        object options = Definition.ChartType.ToLower() switch
+        {
+          "bar"     => BuildBarOptions(cache),
+          "line"    => BuildLineOptions(cache),
+          "scatter" => BuildScatterOptions(cache),
+          _         => BuildBarOptions(cache)
+        };
+        await JS.InvokeVoidAsync("apexInterop.renderChart", elementId, options);
+        LastUpdatedText = $"Last updated: {cache.LastUpdatedUtc.ToLocalTime():g}";
+      }
+    }
+    catch
+    {
+      loadError = true;
+    }
+    finally
+    {
+      isLoading = false;
+      StateHasChanged();
+    }
+  }
+
+  // BuildBarOptions, BuildLineOptions, BuildScatterOptions omitted for brevity…
+}
+
+
+
 using StarTrendsDashboard.Components;
 using StarTrendsDashboard.Services;
 
