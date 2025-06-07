@@ -1,3 +1,74 @@
+using StarTrendsDashboard.Components;
+using StarTrendsDashboard.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// 1) Add Razor Components + server‐side interactivity + HeadOutlet
+builder.Services
+    .AddRazorComponents()
+    .AddInteractiveServerComponents()
+    .AddHeadOutlet();
+
+// 2) Register your chart‐caching service + optional background worker
+builder.Services.AddSingleton<IChartService, ChartService>();
+builder.Services.AddHostedService<ChartPollingBackgroundService>();
+
+// 3) Controllers for your API endpoints
+builder.Services.AddControllers();
+
+// 4) (Optional) CORS policy
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+{
+    p.AllowAnyOrigin()
+     .AllowAnyHeader()
+     .AllowAnyMethod();
+}));
+
+var app = builder.Build();
+
+// 5) Production exception / HSTS
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Error", createScopeForErrors: true);
+    app.UseHsts();
+}
+
+// 6) Security & static files
+app.UseHttpsRedirection();
+app.UseStaticFiles();
+app.UseAntiforgery();
+
+// 7) Map your API controllers
+app.MapControllers();
+
+// 8) Map your Blazor root component (<Routes/> in App.razor)
+app.MapRazorComponents
+ 
+
+
+
+ <link rel="icon" type="image/png" href="favicon.png" />
+
++ <!-- ApexCharts CSS -->
++ <link rel="stylesheet" href="lib/apexcharts/apexcharts.css" />
+
+  <HeadOutlet />
+</head>
+<body>
+  <Routes />
+
+  <script src="_framework/blazor.web.js"></script>
+
++ <!-- ApexCharts JS + interop -->
++ <script src="lib/apexcharts/apexcharts.min.js"></script>
++ <script src="lib/apexcharts/apexInterop.js"></script>
+
+
+
+
+
+
+
 ### Services/ChartService.cs
 
 ```csharp
