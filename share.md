@@ -1,3 +1,240 @@
+### Services/ChartService.cs
+
+```csharp
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using StarTrendsDashboard.Shared;
+using Oracle.ManagedDataAccess.Client;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+namespace StarTrendsDashboard.Services
+{
+    public class ChartService : IChartService
+    {
+        private readonly string _definitionsJsonPath;
+        private readonly string _queryFolder;
+        private readonly string _connectionString;
+        private readonly string _cacheFolder;
+        private readonly ILogger<ChartService> _logger;
+
+        private readonly List<ChartDefinition> _definitions = new();
+        private DateTime _defsLastWriteTimeUtc;
+        private readonly object _lock = new();
+
+        public ChartService(IConfiguration config, ILogger<ChartService> logger)
+        {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+            _definitionsJsonPath = config["ChartDefinitionsPath"]
+                ?? throw new ArgumentNullException("ChartDefinitionsPath missing");
+            _queryFolder = config["ChartQueryFolder"]
+                ?? throw new ArgumentNullException("ChartQueryFolder missing");
+            _cacheFolder = config["ChartCacheFolder"]
+                ?? throw new ArgumentNullException("ChartCacheFolder missing");
+            _connectionString = config.GetConnectionString("OracleDb")
+                ?? throw new ArgumentNullException("OracleDb missing");
+
+            // Ensure ChartCache directory exists
+            Directory.CreateDirectory(_cacheFolder);
+            LoadDefinitions();
+        }
+
+        private void LoadDefinitions()
+        {
+            var fi = new FileInfo(_definitionsJsonPath);
+            if (!fi.Exists)
+                throw new FileNotFoundException($"Cannot find {_definitionsJsonPath}");
+
+            if (fi.LastWriteTimeUtc <= _defsLastWriteTimeUtc && _definitions.Count > 0)
+                return;
+
+            var json = File.ReadAllText(_definitionsJsonPath);
+            var defs = JsonSerializer.Deserialize<List<ChartDefinition>>(json)
+                       ?? new List<ChartDefinition>();
+
+            lock (_lock)
+            {
+                _definitions.Clear();
+                _definitions.AddRange(defs);
+                _defsLastWriteTimeUtc = fi.LastWriteTimeUtc;
+            }
+
+            _logger.LogInformation("Loaded {Count} chart definitions", _definitions.Count);
+        }
+
+        public IReadOnlyList<ChartDefinition> GetAllDefinitions()
+        {
+            LoadDefinitions();
+            lock (_lock)
+            {
+                return _definitions.ToList();
+            }
+        }
+
+        public async Task<ChartDataCache> RefreshChartAsync(string chartId)
+        {
+            LoadDefinitions();
+
+            ChartDefinition? def;
+            lock (_lock)
+            {
+                def = _definitions
+                    .FirstOrDefault(d => d.ChartId.Equals(chartId, StringComparison.OrdinalIgnoreCase));
+            }
+            if (def == null)
+            {
+                _logger.LogWarning("No definition for '{chartId}'", chartId);
+                return new ChartDataCache
+                {
+                    ChartId = chartId,
+                    LastUpdatedUtc = DateTime.UtcNow
+                };
+            }
+
+            var sqlPath = Path.Combine(_queryFolder, def.SqlFile);
+            if (!File.Exists(sqlPath))
+            {
+                _logger.LogError("SQL file not found: {sqlPath}", sqlPath);
+                return new ChartDataCache
+                {
+                    ChartId = chartId,
+                    LastUpdatedUtc = DateTime.UtcNow
+                };
+            }
+
+            string rawSql = await File.ReadAllTextAsync(sqlPath);
+            var rows = new List<ChartDataRow>();
+
+            try
+            {
+                using var conn = new OracleConnection(_connectionString);
+                await conn.OpenAsync();
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = rawSql;
+                cmd.CommandType = CommandType.Text;
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    string label = reader.IsDBNull(0)
+                        ? string.Empty
+                        : reader.GetString(0);
+                    object valObj = reader.GetValue(1);
+                    decimal value = valObj == DBNull.Value
+                        ? 0
+                        : Convert.ToDecimal(valObj);
+
+                    rows.Add(new ChartDataRow
+                    {
+                        Label = label,
+                        Value = value
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error executing SQL for '{chartId}'", chartId);
+                return new ChartDataCache
+                {
+                    ChartId = chartId,
+                    LastUpdatedUtc = DateTime.UtcNow,
+                    Rows = rows
+                };
+            }
+
+            var cache = new ChartDataCache
+            {
+                ChartId = chartId,
+                LastUpdatedUtc = DateTime.UtcNow,
+                Rows = rows
+            };
+
+            var outPath = Path.Combine(_cacheFolder, $"{chartId}.json");
+            var jsonOut = JsonSerializer.Serialize(cache, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            await File.WriteAllTextAsync(outPath, jsonOut);
+
+            _logger.LogInformation("Refreshed '{chartId}' → {Count} rows, wrote {outPath}",
+                chartId, rows.Count, outPath);
+
+            return cache;
+        }
+    }
+}
+```
+
+---
+
+### Controllers/ChartDataController.cs
+
+```csharp
+using Microsoft.AspNetCore.Mvc;
+using StarTrendsDashboard.Services;
+using StarTrendsDashboard.Shared;
+using System;
+using System.IO;
+using System.Text.Json;
+
+namespace StarTrendsDashboard.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class ChartDataController : ControllerBase
+    {
+        private readonly IChartService _chartService;
+        private readonly string _cacheFolder;
+
+        public ChartDataController(IChartService chartService, IConfiguration config)
+        {
+            _chartService = chartService;
+            _cacheFolder = config["ChartCacheFolder"] ?? "ChartCache";
+        }
+
+        // GET /api/chartdata/{chartId}
+        [HttpGet("{chartId}")]
+        public IActionResult Get(string chartId)
+        {
+            var jsonPath = Path.Combine(Directory.GetCurrentDirectory(),
+                                        _cacheFolder,
+                                        $"{chartId}.json");
+            if (System.IO.File.Exists(jsonPath))
+            {
+                var json = System.IO.File.ReadAllText(jsonPath);
+                var cache = JsonSerializer.Deserialize<ChartDataCache>(json)
+                            ?? new ChartDataCache { ChartId = chartId, LastUpdatedUtc = DateTime.UtcNow };
+                return Ok(cache);
+            }
+
+            // If no cached JSON, run SQL now
+            var fresh = _chartService.RefreshChartAsync(chartId).Result;
+            return Ok(fresh);
+        }
+
+        // POST /api/chartdata/refresh/{chartId}
+        [HttpPost("refresh/{chartId}")]
+        public IActionResult RefreshNow(string chartId)
+        {
+            var fresh = _chartService.RefreshChartAsync(chartId).Result;
+            return Ok(fresh);
+        }
+    }
+}
+```
+
+Just drop these two files into your project (replacing any stale versions), rebuild, and all of your chart‐caching and API endpoints will be back in place.
+
+
+
+
 Below is a **from-scratch, step-by-step** guide to get your Blazor Server “StarTrendsDashboard” up and running with **category pages** (one page per `Page`, each showing all its charts in sequence). After this, **adding a new chart** is still just: drop a `.sql` → update JSON → rebuild.
 
 ---
