@@ -10,6 +10,7 @@
 <div class="mb-5">
   <h4>@Definition.Title</h4>
 
+  <!-- This button calls the Refresh() method below -->
   <button class="btn btn-outline-primary mb-2"
           @onclick="Refresh"
           disabled="@isRefreshing">
@@ -39,7 +40,7 @@
   }
   else
   {
-    <div id="@ElementId" style="min-height:350px;"></div>
+    <div id="@ElementId" style="min-height:350px"></div>
     <p class="text-muted">@LastUpdatedText</p>
   }
 </div>
@@ -47,7 +48,7 @@
 @code {
   [Parameter] public ChartDefinition Definition { get; set; } = default!;
 
-  // --- state flags ---
+  // State flags
   bool isRefreshing;
   bool loadError;
   bool hasNoData;
@@ -58,14 +59,17 @@
   string LastUpdatedText = "";
   string ElementId        => $"chart_{Definition.ChartId}";
 
+  // 1) On init, render any existing JSON cache immediately
   protected override async Task OnInitializedAsync()
   {
-    // 1) Try to render whatever is in the cache on disk right away
     await LoadCacheAsync();
-
-    // 2) Then fire off a real refresh in background
+    // 2) Then start the real refresh in background
     _ = LoadDataAsync();
   }
+
+  // Handler for the Refresh button
+  private async Task Refresh()
+    => await LoadDataAsync();
 
   private async Task LoadCacheAsync()
   {
@@ -81,12 +85,12 @@
         _needsRender      = true;
         LastUpdatedText   = $"Cached: {cache.LastUpdatedUtc.ToLocalTime():g}";
         _hasRenderedCache = true;
-        StateHasChanged();       // trigger OnAfterRenderAsync
+        StateHasChanged();
       }
     }
     catch
     {
-      // no cache yet or parse error → ignore
+      // no cache yet, ignore
     }
   }
 
@@ -119,11 +123,10 @@
     finally
     {
       isRefreshing = false;
-      StateHasChanged();       // fire OnAfterRenderAsync again
+      StateHasChanged();
     }
   }
 
-  // prerender-safe JS call
   protected override async Task OnAfterRenderAsync(bool firstRender)
   {
     if (_needsRender && _pendingOptions is not null)
@@ -134,13 +137,12 @@
       }
       catch
       {
-        // prerender or other interop error; will retry on next render
+        // prerender or timing issue; will retry on next render
       }
       _needsRender = false;
     }
   }
 
-  // Helper to choose bar/line/scatter
   private object BuildOptions(ChartDataCache c) =>
     Definition.ChartType.ToLower() switch
     {
@@ -176,16 +178,11 @@
       {
         name = Definition.ChartId,
         data = c.Rows.Select(r =>
-          new object[] {
-            DateTimeOffset.Parse(r.Label).ToUnixTimeMilliseconds(),
-            r.Value
-          }
+          new object[] { DateTimeOffset.Parse(r.Label).ToUnixTimeMilliseconds(), r.Value }
         ).ToArray()
       }
     }
   };
 }
 
-
-  
 ```
