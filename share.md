@@ -1,7 +1,9 @@
 ```
-
 @using System.Linq
+@using System.Net.Http.Json
+@using Microsoft.JSInterop
 @using StarTrendsDashboard.Shared
+@inject HttpClient Http
 @inject IChartService ChartService
 @inject IJSRuntime JS
 
@@ -10,8 +12,8 @@
 
   <button class="btn btn-outline-primary mb-2"
           @onclick="Refresh"
-          disabled="@isLoading">
-    @if (isLoading)
+          disabled="@isRefreshing">
+    @if (isRefreshing)
     {
       <span>Loading…</span>
     }
@@ -21,7 +23,7 @@
     }
   </button>
 
-  @if (isLoading)
+  @if (isRefreshing && !_hasRenderedCache)
   {
     <div class="spinner-border text-primary" role="status">
       <span class="visually-hidden">Loading…</span>
@@ -31,13 +33,13 @@
   {
     <div class="alert alert-danger">Error loading data.</div>
   }
-  else if (hasNoData)
+  else if (hasNoData && !_hasRenderedCache)
   {
     <div class="alert alert-warning">No data available.</div>
   }
   else
   {
-    <div id="@ElementId" style="min-height:350px"></div>
+    <div id="@ElementId" style="min-height:350px;"></div>
     <p class="text-muted">@LastUpdatedText</p>
   }
 </div>
@@ -45,24 +47,54 @@
 @code {
   [Parameter] public ChartDefinition Definition { get; set; } = default!;
 
-  bool isLoading, loadError, hasNoData;
+  // --- state flags ---
+  bool isRefreshing;
+  bool loadError;
+  bool hasNoData;
+  bool _hasRenderedCache;
   bool _needsRender;
   object? _pendingOptions;
+
   string LastUpdatedText = "";
-  string ElementId => $"chart_{Definition.ChartId}";
+  string ElementId        => $"chart_{Definition.ChartId}";
 
   protected override async Task OnInitializedAsync()
-    => await LoadDataAsync();
+  {
+    // 1) Try to render whatever is in the cache on disk right away
+    await LoadCacheAsync();
 
-  private async Task Refresh()
-    => await LoadDataAsync();
+    // 2) Then fire off a real refresh in background
+    _ = LoadDataAsync();
+  }
+
+  private async Task LoadCacheAsync()
+  {
+    try
+    {
+      var cache = await Http.GetFromJsonAsync<ChartDataCache>(
+        $"ChartCache/{Definition.ChartId}.json"
+      );
+
+      if (cache?.Rows?.Any() ?? false)
+      {
+        _pendingOptions   = BuildOptions(cache);
+        _needsRender      = true;
+        LastUpdatedText   = $"Cached: {cache.LastUpdatedUtc.ToLocalTime():g}";
+        _hasRenderedCache = true;
+        StateHasChanged();       // trigger OnAfterRenderAsync
+      }
+    }
+    catch
+    {
+      // no cache yet or parse error → ignore
+    }
+  }
 
   private async Task LoadDataAsync()
   {
-    isLoading = true;
-    loadError = false;
-    hasNoData = false;
-    _needsRender = false;
+    isRefreshing = true;
+    loadError    = false;
+    hasNoData    = false;
     StateHasChanged();
 
     try
@@ -75,17 +107,9 @@
       }
       else
       {
-        // Build chart options based on type
-        _pendingOptions = Definition.ChartType.ToLower() switch
-        {
-          "bar"     => BuildBarOptions(cache),
-          "line"    => BuildLineOptions(cache),
-          "scatter" => BuildScatterOptions(cache),
-          _         => BuildBarOptions(cache)
-        };
-
+        _pendingOptions = BuildOptions(cache);
+        _needsRender    = true;
         LastUpdatedText = $"Last updated: {cache.LastUpdatedUtc.ToLocalTime():g}";
-        _needsRender = true;
       }
     }
     catch
@@ -94,30 +118,38 @@
     }
     finally
     {
-      isLoading = false;
-      StateHasChanged();
+      isRefreshing = false;
+      StateHasChanged();       // fire OnAfterRenderAsync again
     }
   }
 
+  // prerender-safe JS call
   protected override async Task OnAfterRenderAsync(bool firstRender)
   {
     if (_needsRender && _pendingOptions is not null)
     {
       try
       {
-        await JS.InvokeVoidAsync("console.log",
-          $"[ChartBlock] calling apexInterop.renderChart('{ElementId}')");
         await JS.InvokeVoidAsync("apexInterop.renderChart", ElementId, _pendingOptions);
-        _needsRender = false;
       }
       catch
       {
-        // prerender or other error: ignore & retry next render
+        // prerender or other interop error; will retry on next render
       }
+      _needsRender = false;
     }
   }
 
-  private object BuildBarOptions(ChartDataCache c) => new
+  // Helper to choose bar/line/scatter
+  private object BuildOptions(ChartDataCache c) =>
+    Definition.ChartType.ToLower() switch
+    {
+      "line"    => BuildLine(c),
+      "scatter" => BuildScatter(c),
+      _         => BuildBar(c)
+    };
+
+  private object BuildBar(ChartDataCache c) => new
   {
     chart  = new { id = ElementId, type = "bar", toolbar = new { show = true } },
     xaxis  = new { categories = c.Rows.Select(r => r.Label).ToArray() },
@@ -125,7 +157,7 @@
     series = new[] { new { name = Definition.ChartId, data = c.Rows.Select(r => r.Value).ToArray() } }
   };
 
-  private object BuildLineOptions(ChartDataCache c) => new
+  private object BuildLine(ChartDataCache c) => new
   {
     chart  = new { id = ElementId, type = "line", toolbar = new { show = true } },
     xaxis  = new { categories = c.Rows.Select(r => r.Label).ToArray() },
@@ -133,7 +165,7 @@
     series = new[] { new { name = Definition.ChartId, data = c.Rows.Select(r => r.Value).ToArray() } }
   };
 
-  private object BuildScatterOptions(ChartDataCache c) => new
+  private object BuildScatter(ChartDataCache c) => new
   {
     chart  = new { id = ElementId, type = "scatter", toolbar = new { show = true } },
     xaxis  = new { type = "datetime", labels = new { format = "dd MMM HH:mm" } },
@@ -143,16 +175,17 @@
       new
       {
         name = Definition.ChartId,
-        data = c.Rows
-                .Select(r => new object[]
-                {
-                  DateTimeOffset.Parse(r.Label).ToUnixTimeMilliseconds(),
-                  r.Value
-                })
-                .ToArray()
+        data = c.Rows.Select(r =>
+          new object[] {
+            DateTimeOffset.Parse(r.Label).ToUnixTimeMilliseconds(),
+            r.Value
+          }
+        ).ToArray()
       }
     }
   };
 }
 
+
+  
 ```
