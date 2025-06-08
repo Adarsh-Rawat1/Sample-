@@ -1,16 +1,24 @@
-protected override async Task OnAfterRenderAsync(bool firstRender)
-{
-    if (_needsRender && _pendingOptions is not null)
-    {
-        try
-        {
-            // Attempt JS interop—will throw during prerender, but succeed once interactive
-            await JS.InvokeVoidAsync("apexInterop.renderChart", elementId, _pendingOptions);
-            _needsRender = false;  // only draw once
-        }
-        catch (InvalidOperationException)
-        {
-            // prerendering blocked the call—ignore and retry on next render
-        }
+window.apexInterop = {
+  renderChart: function (elementId, config) {
+    console.log(`[apexInterop] renderChart id=${elementId}`, config);
+    const el = document.getElementById(elementId);
+    if (!el) {
+      console.warn(`[apexInterop] Container '${elementId}' not found.`);
+      return;
     }
-}
+    const existing = ApexCharts.getChartByID(elementId);
+    if (existing) existing.destroy();
+    new ApexCharts(el, config).render();
+  },
+  updateSeries: function (elementId, newSeries) {
+    const chart = ApexCharts.getChartByID(elementId);
+    if (chart) chart.updateSeries(newSeries, true);
+  }
+};
+
+
+
+
+
+
+
