@@ -65,3 +65,7 @@ else
 
 
 ```
+
+
+
+Task<IEnumerable<ChartDefinition>> GetAllDefinitionsAsync();
