@@ -1,122 +1,139 @@
-Got it! We’ll strip this right down and make it work with **only your JS files and CSS**. No wrappers, no NuGet packages—just Blazor + JS interop + ApexCharts assets.
+<nav class="navbar navbar-expand-lg navbar-light bg-light shadow-sm mb-4">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/">StarTrends</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navContent">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navContent">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        <li class="nav-item">
+          <NavLink class="nav-link" href="/charts/product" Match="NavLinkMatch.Prefix">Product</NavLink>
+        </li>
+        <li class="nav-item">
+          <NavLink class="nav-link" href="/charts/trade" Match="NavLinkMatch.Prefix">Trade</NavLink>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
 
----
 
-## ✅ Step 1: Ensure Your JS & CSS Assets Are Correct
 
-Put these files in `wwwroot/lib/apexcharts/`:
 
-```
-wwwroot/
-└─ lib/
-   └─ apexcharts/
-      ├─ apexcharts.min.js
-      ├─ apexcharts.css
-      └─ apexInterop.js
-```
 
-`apexInterop.js` should contain:
 
-```js
-window.apexInterop = {
-  renderChart: (id, config) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    ApexCharts.getChartByID(id)?.destroy();
-    new ApexCharts(el, config).render();
-  }
-};
-```
-
----
-
-## ✅ Step 2: Include JS & CSS in `_Host.cshtml`
-
-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <!-- ... -->
-  <link href="lib/apexcharts/apexcharts.css" rel="stylesheet" />
-</head>
-<body>
-  <component type="typeof(HeadOutlet)" render-mode="ServerPrerendered" />
-  <app>
-    <component type="typeof(App)" render-mode="ServerPrerendered" />
-  </app>
-
-  <script src="_framework/blazor.server.js"></script>
-  <script src="lib/apexcharts/apexcharts.min.js"></script>
-  <script src="lib/apexcharts/apexInterop.js"></script>
-</body>
-</html>
-```
-
-Make sure these load (check **Network** tab: they should show up with **200 status**).
-
----
-
-## ✅ Step 3: Minimal Demo Page Without JSON/API
-
-Create `Pages/TestApex.razor`:
-
-```razor
-@page "/test-apex"
+@using System.Net.Http.Json
+@inject HttpClient Http
 @inject IJSRuntime JS
 
-<h3>Click button to render chart</h3>
-<div id="my_chart" style="min-height:350px"></div>
-<button @onclick="RenderDemoChart">Show Chart</button>
+<div class="card mb-4 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">@Definition.Title</h5>
+    <div>
+      <button class="btn btn-sm btn-outline-primary" @onclick="OnRefresh">Refresh</button>
+      @if (lastUpdated != null)
+      {
+        <small class="text-muted ms-2">Updated: @lastUpdated</small>
+      }
+    </div>
+  </div>
+  <div class="card-body p-0">
+    @if (isLoading)
+    {
+      <div class="d-flex justify-content-center align-items-center" style="height:300px;">Loading...</div>
+    }
+    else if (hasNoData)
+    {
+      <div class="d-flex justify-content-center align-items-center text-muted" style="height:300px;">No data available</div>
+    }
+    else
+    {
+      <div id="@ElementId" style="height:300px;"></div>
+    }
+  </div>
+</div>
 
 @code {
-    private async Task RenderDemoChart()
+    [Parameter] public ChartDefinition Definition { get; set; }
+
+    bool isLoading;
+    bool hasNoData;
+    string? lastUpdated;
+    ChartDataCache? cache;
+    string ElementId => $"chart_{Definition.ChartId}";
+
+    async Task OnRefresh()
     {
-        var config = new
+        cache = null;
+        lastUpdated = null;
+        hasNoData = false;
+        await LoadAndRender();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await LoadAndRender();
+    }
+
+    async Task LoadAndRender()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        var resp = await Http.GetAsync($"ChartCache/{Definition.ChartId}.json");
+        if (!resp.IsSuccessStatusCode)
         {
-            chart = new { id = "my_chart", type = "bar" },
-            xaxis = new { categories = new[] { "A", "B", "C" } },
-            series = new[] { new { name = "Demo", data = new[] { 5, 10, 15 } } }
-        };
-        await JS.InvokeVoidAsync("apexInterop.renderChart", "my_chart", config);
+            isLoading = false;
+            hasNoData = true;
+            StateHasChanged();
+            return;
+        }
+
+        if (resp.Content.Headers.LastModified.HasValue)
+            lastUpdated = resp.Content.Headers.LastModified.Value
+                .LocalDateTime.ToString("dd MMM yyyy HH:mm");
+
+        cache = await resp.Content.ReadFromJsonAsync<ChartDataCache>();
+        isLoading = false;
+        hasNoData = cache?.Rows?.Any() != true;
+        StateHasChanged();
+
+        if (!hasNoData)
+        {
+            var opts = Definition.ChartType.ToLower() switch
+            {
+                "line" => new {
+                    chart  = new { id = ElementId, type = "line", height = 300 },
+                    xaxis  = new { categories = cache.Rows.Select(r => r.Label).ToArray() },
+                    series = new[] { new { name = Definition.Title, data = cache.Rows.Select(r => r.Value).ToArray() } }
+                },
+                "scatter" => new {
+                    chart  = new { id = ElementId, type = "scatter", height = 300 },
+                    xaxis  = new { type = "datetime", labels = new { format = "dd MMM HH:mm" } },
+                    series = new[] {
+                      new {
+                        name = Definition.Title,
+                        data = cache.Rows.Select(r =>
+                          new object[] {
+                            DateTimeOffset.Parse(r.Label).ToUnixTimeMilliseconds(),
+                            r.Value
+                          }).ToArray()
+                      }
+                    }
+                },
+                _ => new {
+                    chart  = new { id = ElementId, type = "bar", height = 300 },
+                    xaxis  = new { categories = cache.Rows.Select(r => r.Label).ToArray() },
+                    series = new[] { new { name = Definition.Title, data = cache.Rows.Select(r => r.Value).ToArray() } }
+                }
+            };
+
+            await JS.InvokeVoidAsync("apexInterop.renderChart", ElementId, opts);
+        }
     }
 }
-```
 
-Run the app, **go to `/test-apex`**, click the button, and **you should see a bar chart**.
 
----
 
-## ✅ Step 4: If Nothing Shows or JS Fails
 
-Please check:
-
-1. **Browser DevTools → Network**: verify `apexcharts.min.js` and `apexInterop.js` load successfully.
-2. **DevTools → Console**: type:
-
-   ```
-   console.log(window.apexInterop);
-   ```
-
-   Should show the object. If not, your script paths are wrong.
-3. Try invoking manually:
-
-   ```
-   window.apexInterop.renderChart("my_chart", {
-     chart:{id:"my_chart",type:"bar"}, xaxis:{categories:["A","B","C"]},
-     series:[{name:"Demo",data:[5,10,15]}]
-   });
-   ```
-
-   A chart should appear.
-
----
-
-## 🔎 Summary
-
-* ✅ Only JS + CSS, no NuGet wrappers.
-* ✅ Minimal demo using JS interop works.
-* ✅ Use Network and Console tools to validate script load.
-
-**Once this demo works**, we can replace the static demo with your JSON logic (fetching `/ChartCache/...`, building config, and invoking `apexInterop.renderChart`), and your full setup will work too.
-
-Let me know what you see in **Network** and **Console** once you load `/test-apex`. We'll get this button-based chart working first, then go full blast!
