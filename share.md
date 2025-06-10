@@ -1,74 +1,78 @@
-You're absolutely right – the nav bar currently builds menu items from the old `Page` property in your `ChartDefinition`. Since you're now parsing `category` directly from the `.sql` files, the navbar should also switch to use that dynamic value.
+You're on the right track—the fact that the `XLabel` and `YLabel` are visible in the JSON means your backend parsing is solid. Now it's all about correctly passing those values into your ApexCharts options and ensuring the chart renders with axis titles visible.
 
 ---
 
-## 🧩 Update #1: Parse `category` earlier
+## ✅ Step 1: Update your `Build…Options` in the Razor component
 
-In **`ChartService`**, add logic to extract `category` from each SQL in `LoadDefinitions()`. For instance:
+Make sure each chart options builder includes `xaxis.title.text` and `yaxis.title.text`. Here’s a refined version for the bar chart:
 
 ```csharp
-private void LoadDefinitions()
+private object BuildBarOptions(ChartDataCache c) => new
 {
-    // ... existing load code ...
-
-    foreach (var def in _definitions)
+    chart = new { id = elementId, type = "bar", toolbar = new { show = true }, zoom = new { enabled = false } },
+    title = new { text = Definition.Title, align = "left" },
+    subtitle = new { text = c.Summary, align = "left" },
+    xaxis = new
     {
-        var sqlPath = Path.Combine(_queryFolder, def.SqlFile);
-        if (File.Exists(sqlPath))
-        {
-            string firstLine = File.ReadLines(sqlPath).FirstOrDefault() ?? "";
-            var parts = firstLine.Split(',');
-            def.Category = parts.ElementAtOrDefault(2)?.Trim() ?? "";
-        }
-    }
-}
+        categories = c.Rows.Select(r => r.Label).ToArray(),
+        title = new { text = c.XLabel }
+    },
+    yaxis = new
+    {
+        title = new { text = c.YLabel }
+    },
+    series = new[] { new { name = Definition.ChartId, data = c.Rows.Select(r => r.Value).ToArray() } }
+};
 ```
 
-Ensure your `ChartDefinition` class now includes:
+### Mirror this in your other builders as well:
+
+* **Line charts**
+* **Scatter/datetime charts** (scatter also benefits from `xaxis.title.text`, even if using timestamps)
+
+---
+
+## 💡 Why this matters:
+
+* `xaxis.title.text` and `yaxis.title.text` are the proper options for axis titles per ApexCharts docs ([apexcharts.com][1]).
+* If these aren't present or mis-typed, the axis titles won't appear—even if your JSON contains the correct labels!
+
+---
+
+## ✅ Step 2: Check that `apexInterop.renderChart` correctly applies the options
+
+Ensure your JavaScript side doesn’t filter out `xaxis.title` or `yaxis.title`. The full shape should be passed as-is. You may also test:
+
+```js
+console.log(options); // inspect xaxis.title and yaxis.title before rendering
+```
+
+---
+
+## 🔧 Step 3: Verify for specific chart types
+
+For scatter charts:
 
 ```csharp
-public string Category { get; set; } = "";
+xaxis = new
+{
+    type = "datetime",
+    title = new { text = c.XLabel },
+    labels = new { format = "dd MMM HH:mm" }
+},
+yaxis = new { title = new { text = c.YLabel } },
 ```
 
 ---
 
-## ✅ Update #2: Change Razor Nav to use `Category`
+## 🧪 Troubleshooting tips
 
-Then update your nav component to:
-
-```razor
-<nav class="nav flex-column">
-  @foreach (var cat in ChartService
-                        .GetAllDefinitions()
-                        .Select(d => d.Category)
-                        .Distinct())
-  {
-    <NavLink class="nav-link"
-             href="@($"/charts/{cat}")"
-             Match="NavLinkMatch.Prefix">
-      @cat
-    </NavLink>
-  }
-</nav>
-```
+* Confirm your JSON still includes correct properties after update.
+* Open DevTools and inspect the DOM/SVG: axis title text elements have classes like `.apexcharts-xaxis-title` or `.apexcharts-yaxis-title`.
+* No need for CSS hacks—ApexCharts renders those title elements automatically when configured .
 
 ---
 
-### 🔎 What this does
+If you apply these changes and the axes still lack labels, share the rendered HTML snippet or your JS options object, and I’ll help debug further!
 
-* **Loads `category`** right after definitions are refreshed.
-* **Nav pulls menu titles** from your SQL’s metadata — not static definitions.
-* **Displays intuitive menu items** based on actual data categories from the `.sql` files.
-
----
-
-### ✅ Summary
-
-| File                 | Change                                                         |
-| -------------------- | -------------------------------------------------------------- |
-| `ChartService.cs`    | Parse `category` from SQL headers into definitions             |
-| `ChartDefinition.cs` | Add `public string Category` property                          |
-| Nav Razor Component  | Replace `.Select(d => d.Page)` with `.Select(d => d.Category)` |
-
-Once implemented, your nav menu will automatically reflect the categories defined inside your SQL files. Neat, centralized, and future-proof. Let me know if you'd like help wiring routing by category too!
-
+[1]: https://www.apexcharts.com/docs/options/xaxis/?utm_source=chatgpt.com "xaxis - ApexCharts.js"
