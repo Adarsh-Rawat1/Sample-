@@ -1,18 +1,27 @@
-string[] lines = await File.ReadAllLinesAsync(sqlPath);
+string content = await File.ReadAllTextAsync(sqlPath);
+string[] lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
-// 1. First line: comma-separated axis and category labels: e.g. "Week,Rec Breaks,Product"
-string[] parts = lines[0].Split(',');
-var xLabel = parts.ElementAtOrDefault(0)?.Trim();
-var yLabel = parts.ElementAtOrDefault(1)?.Trim();
-var category = parts.ElementAtOrDefault(2)?.Trim();
+// Parse optional header/metadata
+string[] header = lines[0].Split(',');
+string xLabel = header.ElementAtOrDefault(0)?.Trim() ?? "";
+string yLabel = header.ElementAtOrDefault(1)?.Trim() ?? "";
+string category = header.ElementAtOrDefault(2)?.Trim() ?? "";
 
-// 2. Optional summary in curly braces on second line: "{This is an optional summary…}"
+// Optional summary and SQL start index
 string? summary = null;
-if (lines.Length > 1 && lines[1].Trim().StartsWith("{") && lines[1].Trim().EndsWith("}"))
+int sqlStart = 1;
+if (lines.Length > 1)
 {
-    summary = lines[1].Trim().Trim('{', '}').Trim();
+    var l2 = lines[1].Trim();
+    if (l2.StartsWith("{") && l2.EndsWith("}"))
+    {
+        summary = l2.Trim('{', '}').Trim();
+        sqlStart = 2;
+    }
 }
 
-// 3. The actual SQL starts from either line 1 (no summary) or line 2
-int sqlStart = summary is null ? 1 : 2;
-string rawSql = string.Join("\n", lines.Skip(sqlStart));
+// Reconstruct SQL and strip a single trailing semicolon
+string rawSql = string.Join("\n", lines.Skip(sqlStart))
+                     .TrimEnd();
+if (rawSql.EndsWith(";"))
+    rawSql = rawSql.Substring(0, rawSql.Length - 1).TrimEnd();
