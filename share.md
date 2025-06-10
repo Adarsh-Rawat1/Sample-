@@ -76,3 +76,14 @@ yaxis = new { title = new { text = c.YLabel } },
 If you apply these changes and the axes still lack labels, share the rendered HTML snippet or your JS options object, and I’ll help debug further!
 
 [1]: https://www.apexcharts.com/docs/options/xaxis/?utm_source=chatgpt.com "xaxis - ApexCharts.js"
+
+
+
+
+
+**
+
+@page "/charts/{category}"
+@rendermode="new InteractiveServerRenderMode(prerender: false)"
+
+**
