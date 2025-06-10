@@ -1,16 +1,31 @@
-@page "/test-apex"
-<div id="my_chart" style="height:350px"></div>
-<button @onclick="RenderChart">Show Chart</button>
+@page "/demo-chart"
+
+<h3>Demo bar chart</h3>
+
+<ApexChart TItem="MyData" Title="Monthly Profit"
+           RenderMode="InteractiveServer">
+  <ApexPointSeries TItem="MyData"
+                   Items="Data"
+                   Name="Net Profit"
+                   SeriesType="SeriesType.Bar"
+                   XValue="e => e.Category"
+                   YValue="e => e.NetProfit" />
+</ApexChart>
+
 @code {
-    [Inject] IJSRuntime JS { get; set; }
-    async Task RenderChart()
-    {
-        var opts = new {
-            chart = new { id = "my_chart", type = "bar" },
-            xaxis = new { categories = new[] { "A", "B", "C" } },
-            series = new[] { new { name = "Demo", data = new[] { 1, 2, 3 } } }
-        };
-        await JS.InvokeVoidAsync("apexInterop.renderChart", "my_chart", opts);
-    }
+  List<MyData> Data = new();
+
+  protected override void OnInitialized() {
+    Data = new List<MyData> {
+      new() { Category = "Jan", NetProfit = 12 },
+      new() { Category = "Feb", NetProfit = 43 },
+      new() { Category = "Mar", NetProfit = 112 },
+    };
+  }
+
+  class MyData {
+    public string Category { get; set; } = default!;
+    public int NetProfit { get; set; }
+  }
 }
 
