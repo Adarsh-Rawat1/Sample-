@@ -240,5 +240,66 @@
   },
   {
     "ChartId": "BlottersUsedLastMonthTop20",
-    "Title": "Blotters used last
+    "Title": "Blotters used last month (top 20)",
+    "ChartType": "bar",
+    "SqlFile": "Blotters used last month (top 20).sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "SearchesUsedLastMonth",
+    "Title": "Searches used last month",
+    "ChartType": "bar",
+    "SqlFile": "Searches used last month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "AverageValProFixingsPerHourInLast3MonthsByBfsLocation",
+    "Title": "Average VAL-PRO fixings per hour in last 3 months by BFS location",
+    "ChartType": "bar",
+    "SqlFile": "Average VAL-PRO fixings per hour in last 3 months by BFS location.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "FlowsFixedInLast30DaysByType",
+    "Title": "Flows fixed in last 30 days by type",
+    "ChartType": "bar",
+    "SqlFile": "Flows fixed in last 30 days by type.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "AverageFlowsFixedPerHourInLast3Months",
+    "Title": "Average flows fixed per hour in last 3 months",
+    "ChartType": "bar",
+    "SqlFile": "Average flows fixed per hour in last 3 months.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "FlowsFixedInLast6MonthsByRateTop10",
+    "Title": "Flows fixed in last 6 months by rate (top 10)",
+    "ChartType": "bar",
+    "SqlFile": "Flows fixed in last 6 months by rate (top 10).sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "FlowsFixedByLocationInLast7Days",
+    "Title": "Flows fixed by location in last 7 days",
+    "ChartType": "bar",
+    "SqlFile": "Flows fixed by location in last 7 days.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "FlowsFixedByLocationPerWeek",
+    "Title": "Flows fixed by location per week",
+    "ChartType": "bar",
+    "SqlFile": "Flows fixed by location per week.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "FlowsFixedInLast30DaysByRateTop20",
+    "Title": "Flows fixed in last 30 days by rate (top 20)",
+    "ChartType": "bar",
+    "SqlFile": "Flows fixed in last 30 days by rate (top 20).sql",
+    "RefreshIntervalSeconds": 21600
+  }
+]
 ```
