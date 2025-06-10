@@ -1,209 +1,244 @@
 ```
-@using StarTrendsDashboard.Shared
-@rendermode InteractiveServer
-@using StarTrendsDashboard.Services
-@inject IChartService ChartService
-@inject IJSRuntime JS
-
-<div class="mb-5">
-  <div class="d-flex justify-content-between align-items-center mb-2">
-    <h4 class="m-0">@Definition.Title</h4>
-    <div class="d-flex align-items-center">
-      <button class="btn btn-outline-primary me-3"
-              @onclick="() => RefreshAsync(force: true)"
-              disabled="@isLoading">
-        @(isLoading ? "Loading…" : "Refresh")
-      </button>
-      @if (!string.IsNullOrEmpty(LastUpdatedText))
-      {
-        <small class="text-muted">@LastUpdatedText</small>
-      }
-    </div>
-  </div>
-
-  @if (isLoading)
+[
   {
-    <div class="spinner-border text-primary" role="status">
-      <span class="visually-hidden">Loading…</span>
-    </div>
-  }
-  else if (loadError)
+    "ChartId": "OtcProductTypesBookedInPortfoliosBelongingToBnabparInLast7Days",
+    "Title": "OTC product types booked in portfolios belonging to BNABPAR in last 7 days",
+    "ChartType": "bar",
+    "SqlFile": "OTC product types booked in portfolios belonging to BNABPAR in last 7 days.sql",
+    "RefreshIntervalSeconds": 21600
+  },
   {
-    <div class="alert alert-danger">Error loading data. Try again.</div>
-  }
-  else if (hasNoData)
+    "ChartId": "OtcProductTypesBookedInLast7Days",
+    "Title": "OTC product types booked in last 7 days",
+    "ChartType": "bar",
+    "SqlFile": "OTC product types booked in last 7 days.sql",
+    "RefreshIntervalSeconds": 21600
+  },
   {
-    <div class="alert alert-warning">No data available.</div>
-  }
-  else
+    "ChartId": "MarketEventsInLastMonth",
+    "Title": "Market events in last month",
+    "ChartType": "bar",
+    "SqlFile": "Market events in last month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
   {
-    <div id="@ElementId" style="height:350px; width:100%;"></div>
-  }
-</div>
-
-@code {
-  [Parameter] public ChartDefinition Definition { get; set; } = default!;
-
-  private bool isLoading, hasNoData, loadError, needsRender;
-  private object? chartOptions;
-  private string LastUpdatedText { get; set; } = string.Empty;
-  private string ElementId => $"chart_{Definition.ChartId}";
-
-  protected override async Task OnInitializedAsync()
-    => await RefreshAsync(force: false);
-
-  private async Task RefreshAsync(bool force)
+    "ChartId": "OtcTop5CausesOfIntraDayRecBreaksForThe5WorstOffendersInTheLast4Years",
+    "Title": "OTC top 5 causes of intra-day rec breaks for the 5 worst offenders (in the last 4 years)",
+    "ChartType": "bar",
+    "SqlFile": "OTC top 5 causes of intra-day rec breaks for the 5 worst offenders (in the last 4 years).sql",
+    "RefreshIntervalSeconds": 21600
+  },
   {
-    isLoading = true; loadError = false; hasNoData = false; needsRender = false;
-    StateHasChanged();
-
-    try
-    {
-      var cache = force
-        ? await ChartService.RefreshChartAsync(Definition.ChartId)
-        : await ChartService.RefreshChartIfNeededAsync(Definition.ChartId);
-
-      if (cache.Rows?.Count > 0)
-      {
-        chartOptions = Definition.ChartType.ToLower() switch
-        {
-          "bar"     => BuildBarOptions(cache),
-          "line"    => BuildLineOptions(cache),
-          "scatter" => BuildScatterOptions(cache),
-          _         => BuildBarOptions(cache)
-        };
-
-        LastUpdatedText = $"Last updated: {cache.LastUpdatedUtc.ToLocalTime():g}";
-        needsRender = true;
-      }
-      else hasNoData = true;
-    }
-    catch
-    {
-      loadError = true;
-    }
-    finally
-    {
-      isLoading = false;
-      StateHasChanged();
-    }
-  }
-
-  protected override async Task OnAfterRenderAsync(bool firstRender)
+    "ChartId": "OtcContractsBookedBySourceSystemInLast7DaysExcludingSynthetics",
+    "Title": "OTC contracts booked by source system in last 7 days excluding synthetics",
+    "ChartType": "bar",
+    "SqlFile": "OTC contracts booked by source system in last 7 days excluding synthetics.sql",
+    "RefreshIntervalSeconds": 21600
+  },
   {
-    if (needsRender && chartOptions is not null)
-    {
-      await JS.InvokeVoidAsync("apexInterop.renderChart", ElementId, chartOptions);
-      needsRender = false;
-    }
-  }
-
-  private object BuildBarOptions(ChartDataCache c) => new
+    "ChartId": "RegReportContractUpdatesProcessedPerHourByLocation",
+    "Title": "Reg Report contract updates processed per hour by location",
+    "ChartType": "bar",
+    "SqlFile": "Reg Report contract updates processed per hour by location.sql",
+    "RefreshIntervalSeconds": 21600
+  },
   {
-    chart = new
-    {
-      id = ElementId,
-      type = "bar",
-      height = 350,
-      toolbar = new { show = true },
-      zoom    = new { enabled = false }
-    },
-    plotOptions = new
-    {
-      bar = new { borderRadius = 4 }
-    },
-    dataLabels = new { enabled = true },
-    title    = new { text = Definition.Title, align = "left", style = new { fontSize = "16px" } },
-    subtitle = new { text = c.Summary ?? "", align = "left", style = new { fontSize = "14px" } },
-
-    xaxis = new
-    {
-      categories = c.Rows.Select(r => r.Label).ToArray(),
-      title      = new { text = c.XLabel, style = new { fontSize = "14px" } },
-      labels     = new { style = new { fontSize = "12px" } }
-    },
-    yaxis = new
-    {
-      title  = new { text = c.YLabel, style = new { fontSize = "14px" } },
-      labels = new { style = new { fontSize = "12px" } }
-    },
-    series = new[]
-    {
-      new { name = Definition.ChartId, data = c.Rows.Select(r => r.Value).ToArray() }
-    }
-  };
-
-  private object BuildLineOptions(ChartDataCache c) => new
+    "ChartId": "OtcStpWorkflowTradesPerWeek",
+    "Title": "OTC STP workflow trades per week",
+    "ChartType": "bar",
+    "SqlFile": "OTC STP workflow trades per week.sql",
+    "RefreshIntervalSeconds": 21600
+  },
   {
-    chart = new
-    {
-      id = ElementId,
-      type = "line",
-      height = 350,
-      toolbar = new { show = true },
-      zoom    = new { enabled = true }
-    },
-    dataLabels = new { enabled = true },
-    title    = new { text = Definition.Title, align = "left", style = new { fontSize = "16px" } },
-    subtitle = new { text = c.Summary ?? "", align = "left", style = new { fontSize = "14px" } },
-
-    xaxis = new
-    {
-      categories = c.Rows.Select(r => r.Label).ToArray(),
-      title      = new { text = c.XLabel, style = new { fontSize = "14px" } },
-      labels     = new { style = new { fontSize = "12px" } }
-    },
-    yaxis = new
-    {
-      title  = new { text = c.YLabel, style = new { fontSize = "14px" } },
-      labels = new { style = new { fontSize = "12px" } }
-    },
-    series = new[]
-    {
-      new { name = Definition.ChartId, data = c.Rows.Select(r => r.Value).ToArray() }
-    }
-  };
-
-  private object BuildScatterOptions(ChartDataCache c) => new
+    "ChartId": "ErrorCorrectionsOnContractsWhichHaveBeenPassedToMurex",
+    "Title": "Error corrections on contracts which have been passed to Murex",
+    "ChartType": "bar",
+    "SqlFile": "Error corrections on contracts which have been passed to Murex.sql",
+    "RefreshIntervalSeconds": 21600
+  },
   {
-    chart = new
-    {
-      id = ElementId,
-      type = "scatter",
-      height = 350,
-      toolbar = new { show = true },
-      zoom    = new { enabled = true }
-    },
-    dataLabels = new { enabled = true },
-    title    = new { text = Definition.Title, align = "left", style = new { fontSize = "16px" } },
-    subtitle = new { text = c.Summary ?? "", align = "left", style = new { fontSize = "14px" } },
-
-    xaxis = new
-    {
-      type    = "datetime",
-      title   = new { text = c.XLabel, style = new { fontSize = "14px" } },
-      labels  = new { format = "dd MMM HH:mm", style = new { fontSize = "12px" } }
-    },
-    yaxis = new
-    {
-      title  = new { text = c.YLabel, style = new { fontSize = "14px" } },
-      labels = new { style = new { fontSize = "12px" } }
-    },
-    series = new[]
-    {
-      new
-      {
-        name = Definition.ChartId,
-        data = c.Rows
-                .Select(r => new object[]
-                {
-                  DateTimeOffset.Parse(r.Label).ToUnixTimeMilliseconds(),
-                  r.Value
-                })
-                .ToArray()
-      }
-    }
-  };
-}
-
+    "ChartId": "ContractsSentToBackOfficeSystemPerMonth",
+    "Title": "Contracts sent to back office system per month",
+    "ChartType": "bar",
+    "SqlFile": "Contracts sent to back office system per month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "DeletionsOnContractsWhichHaveBeenPassedToMurex",
+    "Title": "Deletions on contracts which have been passed to Murex",
+    "ChartType": "bar",
+    "SqlFile": "Deletions on contracts which have been passed to Murex.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "OtcManualWorkflowTradesPerWeek",
+    "Title": "OTC manual workflow trades per week",
+    "ChartType": "bar",
+    "SqlFile": "OTC manual workflow trades per week.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "MaxMurexProcessingTimeByHourOfDayLast30Days",
+    "Title": "Max Murex processing time by hour of day last 30 days",
+    "ChartType": "bar",
+    "SqlFile": "Max Murex processing time by hour of day last 30 days.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "OtcTop5ProductsCausingIntraDayRecBreaksExcludingUnrecdAndFalseBreaksPast4Weeks",
+    "Title": "OTC top 5 products causing intra-day rec breaks excluding unrec'd and false breaks (Past 4 weeks)",
+    "ChartType": "bar",
+    "SqlFile": "OTC top 5 products causing intra-day rec breaks excluding unrec'd and false breaks (Past 4 weeks).sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "OtcIntraDayRecBreaksPerWeek",
+    "Title": "OTC intra-day rec breaks per week",
+    "ChartType": "bar",
+    "SqlFile": "OTC intra-day rec breaks per week.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "OtcTradesSavedPerMinuteInLast5Days",
+    "Title": "OTC trades saved per minute in last 5 days",
+    "ChartType": "bar",
+    "SqlFile": "OTC trades saved per minute in last 5 days.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "OtcIntraDayRecBreaksPerWeekByBreakReasonInTheLast12Months",
+    "Title": "OTC intra-day rec breaks per week by break reason (in the last 12 months)",
+    "ChartType": "bar",
+    "SqlFile": "OTC intra-day rec breaks per week by break reason (in the last 12 months).sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "MwRecBreaksPer1000DealsInput",
+    "Title": "MW rec breaks per 1000 deals input",
+    "ChartType": "bar",
+    "SqlFile": "MW rec breaks per 1000 deals input.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "MtmContractsBookedPerWeekInLast4YearsExcludingSynthetics",
+    "Title": "MTM contracts booked per week in last 4 years excluding synthetics",
+    "ChartType": "bar",
+    "SqlFile": "MTM contracts booked per week in last 4 years excluding synthetics.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "OtcContractsBookedPerWeekExcludesSynthetics",
+    "Title": "OTC contracts booked per week excludes synthetics",
+    "ChartType": "bar",
+    "SqlFile": "OTC contracts booked per week excludes synthetics.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "ActiveUsersByRoleLastMonth",
+    "Title": "Active users by role last month",
+    "ChartType": "bar",
+    "SqlFile": "Active users by role last month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "ActiveUsersPerLocationLastMonth",
+    "Title": "Active users per location last month",
+    "ChartType": "bar",
+    "SqlFile": "Active users per location last month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "SlowestDealEnquirySearchesInLast7DaysTop25",
+    "Title": "Slowest deal enquiry searches in last 7 days (top 25)",
+    "ChartType": "bar",
+    "SqlFile": "Slowest deal enquiry searches in last 7 days (top 25).sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "SlowestUserOperationsInLast7DaysTop25",
+    "Title": "Slowest user operations in last 7 days (top 25)",
+    "ChartType": "bar",
+    "SqlFile": "Slowest user operations in last 7 days (top 25).sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "SlowestUserOperationsInLast7DaysGroupByType",
+    "Title": "Slowest user operations in last 7 days (group by type)",
+    "ChartType": "bar",
+    "SqlFile": "Slowest user operations in last 7 days (group by type).sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "ToolsUsedLastMonth",
+    "Title": "Tools used last month",
+    "ChartType": "bar",
+    "SqlFile": "Tools used last month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "WhereMarketsAreSetInTheLastMonth",
+    "Title": "Where Markets are set in the last month",
+    "ChartType": "bar",
+    "SqlFile": "Where Markets are set in the last month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "BlottersFlexVsClassicLastMonth",
+    "Title": "Blotters Flex vs Classic last month",
+    "ChartType": "bar",
+    "SqlFile": "Blotters Flex vs Classic last month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "ReportsUsedLastMonthTop25",
+    "Title": "Reports used last month (top 25)",
+    "ChartType": "bar",
+    "SqlFile": "Reports used last month (top 25).sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "MarketsUsedLastMonthTop10",
+    "Title": "Markets used last month (top 10)",
+    "ChartType": "bar",
+    "SqlFile": "Markets used last month (top 10).sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "BlottersFlexVsClassicPerMonthAllUsers",
+    "Title": "Blotters Flex vs Classic per month all users",
+    "ChartType": "bar",
+    "SqlFile": "Blotters Flex vs Classic per month all users.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "BlottersFeaturesUsedLastMonth",
+    "Title": "Blotters features used last month",
+    "ChartType": "bar",
+    "SqlFile": "Blotters features used last month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "StaticUsedLastMonth",
+    "Title": "Static used last month",
+    "ChartType": "bar",
+    "SqlFile": "Static used last month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "BlottersFlexVsClassicPerMonthSelectedUserGroups",
+    "Title": "Blotters Flex vs Classic per month selected user groups",
+    "ChartType": "bar",
+    "SqlFile": "Blotters Flex vs Classic per month selected user groups.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "TradeFeaturesUsedLastMonth",
+    "Title": "Trade features used last month",
+    "ChartType": "bar",
+    "SqlFile": "Trade features used last month.sql",
+    "RefreshIntervalSeconds": 21600
+  },
+  {
+    "ChartId": "BlottersUsedLastMonthTop20",
+    "Title": "Blotters used last
 ```
