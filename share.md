@@ -1,306 +1,200 @@
+Below are the necessary file changes to support 3‑column SQL (converted to ApexCharts heatmap) and line charts with optional average lines.
+
+---
+
+### 1. `ChartDefinition.cs`
+
+```csharp
+namespace StarTrendsDashboard.Shared;
+
+public class ChartDefinition
+{
+    public string ChartId { get; set; } = "";
+    public string Title   { get; set; } = "";
+    public string SqlFile { get; set; } = "";
+
+    // Controls rendering
+    public string ChartType { get; set; } = "bar";        // "bar", "line", "heatmap", etc.
+    public int    RefreshIntervalSeconds { get; set; } = 21600; // default 6 hrs
+
+    // New:
+    public int    Dimensions      { get; set; } = 2;    // 2 = [label,value], 3 = [x,y,value]
+    public bool   ShowAverageLine { get; set; } = false;
+}
 ```
 
-[
-  {
-    "ChartId": "OtcProductTypesBookedInPortfoliosBelongingToBnabparInLast7Days",
-    "Title": "OTC product types booked in portfolios belonging to BNABPAR in last 7 days",
-    "ChartType": "bar",
-    "SqlFile": "OTC product types booked in portfolios belonging to BNABPAR in last 7 days.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "OtcProductTypesBookedInLast7Days",
-    "Title": "OTC product types booked in last 7 days",
-    "ChartType": "bar",
-    "SqlFile": "OTC product types booked in last 7 days.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "MarketEventsInLastMonth",
-    "Title": "Market events in last month",
-    "ChartType": "bar",
-    "SqlFile": "Market events in last month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "OtcTop5CausesOfIntraDayRecBreaksForThe5WorstOffendersInTheLast4Years",
-    "Title": "OTC top 5 causes of intra-day rec breaks for the 5 worst offenders (in the last 4 years)",
-    "ChartType": "bar",
-    "SqlFile": "OTC top 5 causes of intra-day rec breaks for the 5 worst offenders (in the last 4 years).sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "OtcContractsBookedBySourceSystemInLast7DaysExcludingSynthetics",
-    "Title": "OTC contracts booked by source system in last 7 days excluding synthetics",
-    "ChartType": "bar",
-    "SqlFile": "OTC contracts booked by source system in last 7 days excluding synthetics.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "RegReportContractUpdatesProcessedPerHourByLocation",
-    "Title": "Reg Report contract updates processed per hour by location",
-    "ChartType": "bar",
-    "SqlFile": "Reg Report contract updates processed per hour by location.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "OtcStpWorkflowTradesPerWeek",
-    "Title": "OTC STP workflow trades per week",
-    "ChartType": "bar",
-    "SqlFile": "OTC STP workflow trades per week.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "ErrorCorrectionsOnContractsWhichHaveBeenPassedToMurex",
-    "Title": "Error corrections on contracts which have been passed to Murex",
-    "ChartType": "bar",
-    "SqlFile": "Error corrections on contracts which have been passed to Murex.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "ContractsSentToBackOfficeSystemPerMonth",
-    "Title": "Contracts sent to back office system per month",
-    "ChartType": "bar",
-    "SqlFile": "Contracts sent to back office system per month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "DeletionsOnContractsWhichHaveBeenPassedToMurex",
-    "Title": "Deletions on contracts which have been passed to Murex",
-    "ChartType": "bar",
-    "SqlFile": "Deletions on contracts which have been passed to Murex.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "OtcManualWorkflowTradesPerWeek",
-    "Title": "OTC manual workflow trades per week",
-    "ChartType": "bar",
-    "SqlFile": "OTC manual workflow trades per week.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "MaxMurexProcessingTimeByHourOfDayLast30Days",
-    "Title": "Max Murex processing time by hour of day last 30 days",
-    "ChartType": "bar",
-    "SqlFile": "Max Murex processing time by hour of day last 30 days.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "OtcTop5ProductsCausingIntraDayRecBreaksExcludingUnrecdAndFalseBreaksPast4Weeks",
-    "Title": "OTC top 5 products causing intra-day rec breaks excluding unrec'd and false breaks (Past 4 weeks)",
-    "ChartType": "bar",
-    "SqlFile": "OTC top 5 products causing intra-day rec breaks excluding unrec'd and false breaks (Past 4 weeks).sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "OtcIntraDayRecBreaksPerWeek",
-    "Title": "OTC intra-day rec breaks per week",
-    "ChartType": "bar",
-    "SqlFile": "OTC intra-day rec breaks per week.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "OtcTradesSavedPerMinuteInLast5Days",
-    "Title": "OTC trades saved per minute in last 5 days",
-    "ChartType": "bar",
-    "SqlFile": "OTC trades saved per minute in last 5 days.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "OtcIntraDayRecBreaksPerWeekByBreakReasonInTheLast12Months",
-    "Title": "OTC intra-day rec breaks per week by break reason (in the last 12 months)",
-    "ChartType": "bar",
-    "SqlFile": "OTC intra-day rec breaks per week by break reason (in the last 12 months).sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "MwRecBreaksPer1000DealsInput",
-    "Title": "MW rec breaks per 1000 deals input",
-    "ChartType": "bar",
-    "SqlFile": "MW rec breaks per 1000 deals input.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "MtmContractsBookedPerWeekInLast4YearsExcludingSynthetics",
-    "Title": "MTM contracts booked per week in last 4 years excluding synthetics",
-    "ChartType": "bar",
-    "SqlFile": "MTM contracts booked per week in last 4 years excluding synthetics.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "OtcContractsBookedPerWeekExcludesSynthetics",
-    "Title": "OTC contracts booked per week excludes synthetics",
-    "ChartType": "bar",
-    "SqlFile": "OTC contracts booked per week excludes synthetics.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "ActiveUsersByRoleLastMonth",
-    "Title": "Active users by role last month",
-    "ChartType": "bar",
-    "SqlFile": "Active users by role last month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "ActiveUsersPerLocationLastMonth",
-    "Title": "Active users per location last month",
-    "ChartType": "bar",
-    "SqlFile": "Active users per location last month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "SlowestDealEnquirySearchesInLast7DaysTop25",
-    "Title": "Slowest deal enquiry searches in last 7 days (top 25)",
-    "ChartType": "bar",
-    "SqlFile": "Slowest deal enquiry searches in last 7 days (top 25).sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "SlowestUserOperationsInLast7DaysTop25",
-    "Title": "Slowest user operations in last 7 days (top 25)",
-    "ChartType": "bar",
-    "SqlFile": "Slowest user operations in last 7 days (top 25).sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "SlowestUserOperationsInLast7DaysGroupByType",
-    "Title": "Slowest user operations in last 7 days (group by type)",
-    "ChartType": "bar",
-    "SqlFile": "Slowest user operations in last 7 days (group by type).sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "ToolsUsedLastMonth",
-    "Title": "Tools used last month",
-    "ChartType": "bar",
-    "SqlFile": "Tools used last month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "WhereMarketsAreSetInTheLastMonth",
-    "Title": "Where Markets are set in the last month",
-    "ChartType": "bar",
-    "SqlFile": "Where Markets are set in the last month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "BlottersFlexVsClassicLastMonth",
-    "Title": "Blotters Flex vs Classic last month",
-    "ChartType": "bar",
-    "SqlFile": "Blotters Flex vs Classic last month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "ReportsUsedLastMonthTop25",
-    "Title": "Reports used last month (top 25)",
-    "ChartType": "bar",
-    "SqlFile": "Reports used last month (top 25).sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "MarketsUsedLastMonthTop10",
-    "Title": "Markets used last month (top 10)",
-    "ChartType": "bar",
-    "SqlFile": "Markets used last month (top 10).sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "BlottersFlexVsClassicPerMonthAllUsers",
-    "Title": "Blotters Flex vs Classic per month all users",
-    "ChartType": "bar",
-    "SqlFile": "Blotters Flex vs Classic per month all users.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "BlottersFeaturesUsedLastMonth",
-    "Title": "Blotters features used last month",
-    "ChartType": "bar",
-    "SqlFile": "Blotters features used last month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "StaticUsedLastMonth",
-    "Title": "Static used last month",
-    "ChartType": "bar",
-    "SqlFile": "Static used last month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "BlottersFlexVsClassicPerMonthSelectedUserGroups",
-    "Title": "Blotters Flex vs Classic per month selected user groups",
-    "ChartType": "bar",
-    "SqlFile": "Blotters Flex vs Classic per month selected user groups.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "TradeFeaturesUsedLastMonth",
-    "Title": "Trade features used last month",
-    "ChartType": "bar",
-    "SqlFile": "Trade features used last month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "BlottersUsedLastMonthTop20",
-    "Title": "Blotters used last month (top 20)",
-    "ChartType": "bar",
-    "SqlFile": "Blotters used last month (top 20).sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "SearchesUsedLastMonth",
-    "Title": "Searches used last month",
-    "ChartType": "bar",
-    "SqlFile": "Searches used last month.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "AverageValProFixingsPerHourInLast3MonthsByBfsLocation",
-    "Title": "Average VAL-PRO fixings per hour in last 3 months by BFS location",
-    "ChartType": "bar",
-    "SqlFile": "Average VAL-PRO fixings per hour in last 3 months by BFS location.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "FlowsFixedInLast30DaysByType",
-    "Title": "Flows fixed in last 30 days by type",
-    "ChartType": "bar",
-    "SqlFile": "Flows fixed in last 30 days by type.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "AverageFlowsFixedPerHourInLast3Months",
-    "Title": "Average flows fixed per hour in last 3 months",
-    "ChartType": "bar",
-    "SqlFile": "Average flows fixed per hour in last 3 months.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "FlowsFixedInLast6MonthsByRateTop10",
-    "Title": "Flows fixed in last 6 months by rate (top 10)",
-    "ChartType": "bar",
-    "SqlFile": "Flows fixed in last 6 months by rate (top 10).sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "FlowsFixedByLocationInLast7Days",
-    "Title": "Flows fixed by location in last 7 days",
-    "ChartType": "bar",
-    "SqlFile": "Flows fixed by location in last 7 days.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "FlowsFixedByLocationPerWeek",
-    "Title": "Flows fixed by location per week",
-    "ChartType": "bar",
-    "SqlFile": "Flows fixed by location per week.sql",
-    "RefreshIntervalSeconds": 21600
-  },
-  {
-    "ChartId": "FlowsFixedInLast30DaysByRateTop20",
-    "Title": "Flows fixed in last 30 days by rate (top 20)",
-    "ChartType": "bar",
-    "SqlFile": "Flows fixed in last 30 days by rate (top 20).sql",
-    "RefreshIntervalSeconds": 21600
-  }
-]
+---
+
+### 2. `ChartDataCache.cs`
+
+```csharp
+namespace StarTrendsDashboard.Shared;
+
+public class ChartDataCache
+{
+    public string ChartId         { get; set; } = "";
+    public DateTime LastUpdatedUtc { get; set; }
+
+    // Holds 2‑ or 3‑element points: [label, value] or [x, y, value]
+    public List<object[]> Data     { get; set; } = new();
+
+    public string XLabel  { get; set; } = "";
+    public string YLabel  { get; set; } = "";
+    public string? ZLabel { get; set; }        // only used when Dimensions==3
+    public string Category { get; set; } = "";
+    public string? Summary { get; set; }
+
+    // For line charts with an average overlay
+    public decimal? AverageValue { get; set; }
+}
 ```
+
+---
+
+### 3. `ChartService.cs` (inside `RefreshChartAsync`)
+
+Replace your existing row‐reading logic with this block to populate `Data` and compute `AverageValue`:
+
+```csharp
+// after parsing headers (xLabel, yLabel, possibly zLabel) and stripping `;`
+var rows3D = new List<object[]>();
+while (await reader.ReadAsync())
+{
+    var x = reader.GetString(0);
+    var yVal = Convert.ToDecimal(reader.GetValue(1));
+
+    if (def.Dimensions == 3)
+    {
+        var zVal = Convert.ToDecimal(reader.GetValue(2));
+        rows3D.Add(new object[] { x, reader.GetString(1), zVal });
+    }
+    else
+    {
+        rows3D.Add(new object[] { x, yVal });
+    }
+}
+
+// compute average of the second numeric column if requested
+decimal? avg = null;
+if (def.ShowAverageLine && def.Dimensions == 2 && rows3D.Count > 0)
+{
+    avg = rows3D.Average(r => Convert.ToDecimal(r[1]));
+}
+
+var cache = new ChartDataCache
+{
+    ChartId       = chartId,
+    LastUpdatedUtc = DateTime.UtcNow,
+    Data          = rows3D,
+    XLabel        = xLabel,
+    YLabel        = yLabel,
+    ZLabel        = def.Dimensions == 3 ? zLabel : null,
+    Category      = category,
+    Summary       = summary,
+    AverageValue  = avg
+};
+
+// serialize & write JSON as before
+```
+
+---
+
+### 4. `ChartBlock.razor` (add heatmap & average‐line builders)
+
+In your options switch, add:
+
+```csharp
+chartOptions = Definition.ChartType.ToLower() switch
+{
+  "bar"     => BuildBarOptions(cache),
+  "line"    => BuildLineOptions(cache),
+  "heatmap" => BuildHeatmapOptions(cache),
+  _          => BuildBarOptions(cache)
+};
+```
+
+Then below your existing builders, append:
+
+```csharp
+private object BuildHeatmapOptions(ChartDataCache c)
+{
+    // extract distinct axes
+    var xCats = c.Data.Select(d => (string)d[0]).Distinct().ToArray();
+    var yCats = c.Data.Select(d => (string)d[1]).Distinct().ToArray();
+
+    // series per Y category
+    var series = yCats.Select(y => new
+    {
+        name = y,
+        data = xCats.Select(x => new
+        {
+            x,
+            y = (decimal?)c.Data
+                  .FirstOrDefault(d => (string)d[0] == x && (string)d[1] == y)?[2]
+                  ?? 0m
+        }).ToArray()
+    }).ToArray();
+
+    return new
+    {
+        chart = new { type = "heatmap", height = 350 },
+        plotOptions = new { heatmap = new { shadeIntensity = 0.5, radius = 2 } },
+        dataLabels = new { enabled = false },
+        xaxis = new { type = "category", categories = xCats },
+        yaxis = new { type = "category" },
+        series = series
+    };
+}
+
+private object BuildLineOptions(ChartDataCache c)
+{
+    var labels = c.Data.Select(d => (string)d[0]).ToArray();
+    var values = c.Data.Select(d => (decimal)d[1]).ToArray();
+
+    // main series
+    var list = new List<object>
+    {
+        new { name = Definition.Title, type = "line", data = values }
+    };
+
+    // optional average line
+    if (Definition.ShowAverageLine && c.AverageValue.HasValue)
+    {
+        list.Add(new
+        {
+            name = "Average",
+            type = "line",
+            data = Enumerable.Repeat(c.AverageValue.Value, values.Length).ToArray(),
+            stroke = new { dashArray = 4 }
+        });
+    }
+
+    return new
+    {
+        chart = new { id = ElementId, type = "line", height = 350, toolbar = new { show = true }, zoom = new { enabled = true } },
+        stroke = new { curve = "smooth" },
+        dataLabels = new { enabled = false },
+        xaxis = new { categories = labels, title = new { text = c.XLabel } },
+        yaxis = new { title = new { text = c.YLabel } },
+        series = list.ToArray()
+    };
+}
+```
+
+---
+
+### 5. Sample `chart-definitions.json` for a heatmap chart
+
+```json
+{
+  "ChartId": "OtcRecBreaksHeatmap",
+  "Title": "OTC intra-day rec breaks per week by reason",
+  "ChartType": "heatmap",
+  "SqlFile": "OTC intra-day rec breaks per week by break reason (in the last 12 months).sql",
+  "Dimensions": 3,
+  "ShowAverageLine": false,
+  "RefreshIntervalSeconds": 21600
+}
+```
+
+With these changes, any SQL with 3 header columns (x,y,value) will automatically render as a heatmap, and 2‑column SQL can render as bar/line (with optional average). Let me know if you need further tweaks!
