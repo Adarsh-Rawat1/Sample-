@@ -1,4 +1,5 @@
 ```
+
 [
   {
     "ChartId": "OtcProductTypesBookedInPortfoliosBelongingToBnabparInLast7Days",
