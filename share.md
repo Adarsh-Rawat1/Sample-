@@ -1,77 +1,80 @@
-```
+To tame the heatmap overflow and get a single‐color gradient, update your `BuildHeatmapOptions` like this:
 
-private object BuildLineOptions(ChartDataCache c)
+```csharp
+private object BuildHeatmapOptions(ChartDataCache c)
 {
-    // Base series (your actual data)
-    var mainDates  = c.Data.Select(d => DateTime.Parse((string)d[0]).ToUniversalTime().ToUnixTimeMilliseconds()).ToArray();
-    var mainValues = c.Data.Select(d => Convert.ToDecimal(d[1])).ToArray();
+    // Extract categories
+    var xCats = c.Data.Select(d => (string)d[0]).Distinct().ToArray();
+    var yCats = c.Data.Select(d => (string)d[1]).Distinct().ToArray();
 
-    // Build the series list
-    var seriesList = new List<object>
+    // Prepare min/max for color scale
+    var values = c.Data.Select(d => Convert.ToDecimal(d[2])).ToArray();
+    var minVal = (double)values.Min();
+    var maxVal = (double)values.Max();
+
+    // Series per Y category
+    var series = yCats.Select(y => new
     {
-        new
+        name = y,
+        data = xCats.Select(x =>
         {
-            name = Definition.Title,
-            type = "line",
-            data = mainDates
-                   .Zip(mainValues, (x, y) => new object[] { x, y })
-                   .ToArray()
-        }
-    };
+            var match = c.Data.FirstOrDefault(d => (string)d[0] == x && (string)d[1] == y);
+            var z = match != null ? Convert.ToDouble(match[2]) : 0.0;
+            return new { x, y, value = z };
+        }).ToArray()
+    }).ToArray();
 
-    // If AverageValue is present, append a flat average‐line series
-    if (c.AverageValue.HasValue)
-    {
-        var avgVal   = c.AverageValue.Value;
-        var avgSeries = mainDates
-                        .Select(x => new object[] { x, avgVal })
-                        .ToArray();
-
-        seriesList.Add(new
-        {
-            name       = "Average",
-            type       = "line",
-            data       = avgSeries,
-            stroke     = new { width = 1, dashArray = 4 },
-            markers    = new { size = 0 }
-        });
-    }
+    // Dynamic height: e.g. 30px per row, min 350px
+    var chartHeight = Math.Max(350, yCats.Length * 30);
 
     return new
     {
         chart = new
         {
-            id     = ElementId,
-            type   = "line",
-            height = 350,
-            toolbar = new { show = true },
-            zoom    = new { enabled = true }
+            type   = "heatmap",
+            height = chartHeight,
+            toolbar = new { show = true }
         },
-        stroke = new { width = 2, curve = "smooth" },
-        markers = new { size = 4 },
+        plotOptions = new
+        {
+            heatmap = new
+            {
+                shadeIntensity      = 0.5,
+                radius              = 0,
+                useFillColorAsStroke = false,
+                distributed         = false,
+                colorScale = new
+                {
+                    ranges = new[] {
+                        new { from = minVal, to = maxVal, name = "", color = "#008FFB" }
+                    }
+                }
+            }
+        },
         dataLabels = new { enabled = false },
-
+        stroke     = new { width = 0 },
         xaxis = new
         {
-            type       = "datetime",
-            tickAmount = 8,
-            labels     = new
-            {
-                format                = "dd MMM HH:mm",
-                rotate                = -45,
-                hideOverlappingLabels = true,
-                datetimeUTC           = false,
-                style = new { fontSize = "12px" }
-            },
-            title = new { text = c.XLabel, style = new { fontSize = "14px" } }
+            type       = "category",
+            categories = xCats,
+            labels     = new { rotate = -45, style = new { fontSize = "12px" } }
         },
         yaxis = new
         {
-            title  = new { text = c.YLabel, style = new { fontSize = "14px" } },
+            type   = "category",
             labels = new { style = new { fontSize = "12px" } }
         },
-
-        series = seriesList.ToArray()
+        series = series
     };
 }
 ```
+
+### What this does
+
+* **Dynamic height** (`chartHeight`) prevents overflow by sizing the chart to the number of rows.
+* **Single‐color gradient**: the `colorScale.ranges` with one entry gives you a uniform color ramp (`#008FFB`).
+* **No multi‐color**: with only one range, every cell uses a gradient of that color.
+* **Compact cells**: `radius = 0` and turning off strokes keeps each cell tight.
+* **Label rotation** (`rotate = -45`) makes dense category labels legible.
+
+Drop this into your `ChartBlock.razor` in place of the old heatmap builder—and the container should stay tidy, scrollable (if you keep your CSS), and consistently colored.
