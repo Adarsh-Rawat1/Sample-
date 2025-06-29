@@ -1,14 +1,16 @@
 ```
 @Library('jenkins-devops-cicd-library') _
 
+// Selects the correct Artifactory repository based on branch
 def ResolveArtifactoryRepository() {
     String repos = 'star-generic-local-dev'
-    if (BRANCH_NAME == 'master') {
+    if (env.BRANCH_NAME == 'master') {
         repos = 'star-generic-local-release'
     }
     return repos
 }
 
+// Reads version from build/version.txt or from the .csproj AssemblyVersion
 def ResolveVersion() {
     if (!fileExists('.\\build\\version.txt')) {
         def csprojFilePath = '.\\bnpp.star.openapi\\bnpp.star.openapi.csproj'
@@ -21,12 +23,12 @@ def ResolveVersion() {
             echo "Version info from AssemblyVersion: ${formattedVersion}"
             return formattedVersion
         } else {
-            error "AssemblyVersion not found in the .csproj file."
+            error "AssemblyVersion not found in ${csprojFilePath}"
         }
     } else {
-        def version = readFile '.\\build\\version.txt'
+        def version = readFile('.\\build\\version.txt').trim()
         echo "Reading Version from file version.txt: ${version}"
-        return version.trim()
+        return version
     }
 }
 
@@ -41,62 +43,61 @@ pipeline {
         timestamps()
     }
     environment {
+        // project & build
         PROJECT_NAME               = "bnpp.star.reporting.api"
         ALL_PROJECTS               = "bnpp.star.data.extractor,bnpp.star.web.service"
-        BINARY_PUBLISH_PATH        = "\\bin\\Release\\net8.0\\win-x64\\publish"
         SOLUTION_FILE              = "bnpp.reporting.api.sln"
         CONFIG_FILE                = "build\\Nuget.config"
 
+        // Artifactory credentials
         ARTIFACTORY_CREDS_ID       = 'STAR-ARTIFACTORY'
         ARTIFACTORY_CREDS          = credentials("${ARTIFACTORY_CREDS_ID}")
         ARTIFACTORY_USER           = "${ARTIFACTORY_CREDS_USR}"
         ARTIFACTORY_PASS           = "${ARTIFACTORY_CREDS_PSW}"
         ARTIFACTORY_URL            = "https://artifactory.cib.echonet/artifactory"
-        ARTIFACTORY_REPO           = ResolveArtifactoryRepository()
 
+        // NuGet feeds
         REPO_STAR_NUGET            = "https://artifactory.cib.echonet/artifactory/api/nuget/star-nuget"
         REPO_EXTERNAL_NUGET        = "https://artifactory.cib.echonet/artifactory/api/nuget/external-nuget-local"
         REPO_REMOTE_CACHE          = "https://artifactory.cib.echonet/artifactory/api/nuget/nuget-remote-cache"
 
-        VERSION_NUMBER             = "${ResolveVersion()}.${env.BUILD_NUMBER}"
-
-        // Fortify specific
+        // Fortify
         FORTIFY_URL                = "https://fortifyssc.cib.echonet/ssc"
         SECURITY_CHAMPION_MAIL     = "harpreet.nanra@uk.bnpparibas.com"
         APPLICATION_REPORTING_API  = "STAR.HUDSON"
-        NEW_VERSION                = "0.0.${env.BUILD_NUMBER}"
 
+        // MSBuild tool
         MSBuild17                  = tool 'MSBuild_17.0'
         MSBUILD                    = "${MSBuild17}"
     }
 
     stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Initialize') {
+            steps {
+                script {
+                    // capture branch, version, artifact names
+                    env.BRANCH_NAME      = env.GIT_BRANCH ?: env.BRANCH_NAME
+                    env.ARTIFACTORY_REPO = ResolveArtifactoryRepository()
+                    env.VERSION_NUMBER   = "${ResolveVersion()}.${BUILD_NUMBER}"
+                    currentBuild.displayName = env.VERSION_NUMBER
+                    env.ZIP_NAME         = "${PROJECT_NAME}-${VERSION_NUMBER}"
+                }
+            }
+        }
+
         stage('Create needed folders') {
             steps {
-                bat "if not exist \"D:\\data\\reportingapi\" mkdir D:\\data\\reportingapi"
+                bat 'if not exist "D:\\data\\reportingapi" mkdir D:\\data\\reportingapi'
             }
         }
 
-        stage('Get commitId and latest tag') {
-            steps {
-                script {
-                    env.COMMIT_ID = bat(returnStdout: true, script: '@git rev-parse --short HEAD').trim()
-                    env.LATEST_TAG = bat(returnStdout: true, script: '@git describe --always --abbrev=0').trim()
-                    echo "Application Version: ${VERSION_NUMBER}"
-                }
-            }
-        }
-
-        stage('Get artifact version') {
-            steps {
-                script {
-                    currentBuild.displayName = "${VERSION_NUMBER}"
-                    env.ZIP_NAME = "${PROJECT_NAME}-${VERSION_NUMBER}"
-                }
-            }
-        }
-
-        stage('Delete build directory') {
+        stage('Delete build directories') {
             steps {
                 script {
                     ALL_PROJECTS.tokenize(',').each { proj ->
@@ -106,22 +107,20 @@ pipeline {
             }
         }
 
-        stage('Set version for all dlls and exes') {
+        stage('Set version in csproj') {
             steps {
                 powershell '''
                   Get-ChildItem . -Recurse -Filter *.csproj | ForEach-Object {
-                    (Get-Content $_.FullName) `
-                      -replace '<Version>1.1.1.1</Version>', "<Version>$env:VERSION_NUMBER</Version><RuntimeIdentifier>win-x64</RuntimeIdentifier>" `
-                      | Set-Content $_.FullName
+                    (Get-Content $_.FullName) -replace '<Version>1.1.1.1</Version>', "<Version>$env:VERSION_NUMBER</Version><RuntimeIdentifier>win-x64</RuntimeIdentifier>" | Set-Content $_.FullName
                   }
                 '''
             }
         }
 
-        stage('Add Nuget credentials') {
+        stage('Add NuGet credentials') {
             steps {
                 script {
-                    // Overwrite Nuget.config with a clean skeleton
+                    // start with a fresh NuGet.config
                     writeFile file: "${CONFIG_FILE}", text: '''<?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
@@ -130,17 +129,15 @@ pipeline {
   <packageSourceCredentials>
   </packageSourceCredentials>
 </configuration>'''
-
-                    // Define all feeds once
+                    // define and add all feeds
                     def feeds = [
-                      [ name: 'star-nuget',           url: "${REPO_STAR_NUGET}"    ],
-                      [ name: 'external-nuget-local', url: "${REPO_EXTERNAL_NUGET}"],
-                      [ name: 'nuget-remote-cache',    url: "${REPO_REMOTE_CACHE}"  ]
+                      [name:'star-nuget',           url:REPO_STAR_NUGET],
+                      [name:'external-nuget-local', url:REPO_EXTERNAL_NUGET],
+                      [name:'nuget-remote-cache',    url:REPO_REMOTE_CACHE]
                     ]
-
                     feeds.each { feed ->
                         bat """
-                          nuget sources Remove -Name ${feed.name} -ConfigFile ${CONFIG_FILE} || echo 'Skipping remove ${feed.name}'
+                          nuget sources Remove -Name ${feed.name} -ConfigFile ${CONFIG_FILE} || echo 'no existing ${feed.name}'
                           nuget sources Add    -Name ${feed.name} ^
                                -Source ${feed.url} ^
                                -UserName ${ARTIFACTORY_USER} ^
@@ -158,14 +155,14 @@ pipeline {
             }
         }
 
-        stage('Restore with Nuget') {
+        stage('Restore with NuGet') {
             steps {
                 bat "\"${MSBUILD}\" -version"
                 bat "dotnet restore ${SOLUTION_FILE} -r win-x64 --configfile ${CONFIG_FILE}"
             }
         }
 
-        stage('Remove all override config file settings') {
+        stage('Remove override settings') {
             steps {
                 powershell '''
                   Get-ChildItem . -Recurse -Filter *.json | ForEach-Object {
@@ -190,13 +187,13 @@ pipeline {
         stage('Create Fortify Version') {
             steps {
                 node('Bnpp-Maven3-SecOps') {
-                    withCredentials([ string(credentialsId: 'fortify-rest-api-token-star', variable: 'FORTIFY_REST_API_TOKEN') ]) {
+                    withCredentials([string(credentialsId: 'fortify-rest-api-token-star', variable: 'FORTIFY_REST_API_TOKEN')]) {
                         script {
                             createNewFortifyApplicationVersionBasedOnLastScan(
-                                "${FORTIFY_URL}", 
-                                "${FORTIFY_REST_API_TOKEN}", 
-                                "${APPLICATION_REPORTING_API}", 
-                                "${NEW_VERSION}"
+                                "${FORTIFY_URL}",
+                                "${FORTIFY_REST_API_TOKEN}",
+                                "${APPLICATION_REPORTING_API}",
+                                "0.0.${BUILD_NUMBER}"
                             )
                         }
                     }
@@ -207,15 +204,32 @@ pipeline {
         stage('Fortify Scan/Analysis') {
             steps {
                 withCredentials([
-                  string(credentialsId: 'fortify-rest-api-token-star',      variable: 'FORTIFY_REST_API_TOKEN'),
-                  string(credentialsId: 'fortify-report-token-star',        variable: 'FORTIFY_SCAN_CENTRAL_TOKEN')
+                  string(credentialsId: 'fortify-rest-api-token-star',   variable: 'FORTIFY_REST_API_TOKEN'),
+                  string(credentialsId: 'fortify-report-token-star',     variable: 'FORTIFY_SCAN_CENTRAL_TOKEN')
                 ]) {
                     script {
                         try {
-                            bat 'fortifyupdate -url ${FORTIFY_URL} -acceptSSLCertificate -acceptKey'
+                            bat "fortifyupdate -url ${FORTIFY_URL} -acceptSSLCertificate -acceptKey"
                             bat "sourceanalyzer -Dcom.fortify.sca.ProjectRoot=.fortify -clean -b ${APPLICATION_REPORTING_API}"
-                            bat "sourceanalyzer -Dcom.fortify.sca.ProjectRoot=.fortify -Xmx5G -b ${APPLICATION_REPORTING_API} -logfile reporting-api-fortify.log -debug -verbose \"${MSBUILD}\" ${SOLUTION_FILE} /p:Configuration=Release"
-                            bat "scancentral -sscurl ${FORTIFY_URL} -ssctoken ${FORTIFY_SCAN_CENTRAL_TOKEN} start -projroot .fortify -b ${APPLICATION_REPORTING_API} -email ${SECURITY_CHAMPION_MAIL} -f ${APPLICATION_REPORTING_API}.fpr -log ${APPLICATION_REPORTING_API}-scan.log -upload -application ${APPLICATION_REPORTING_API} -version ${NEW_VERSION} -uptoken ${FORTIFY_SCAN_CENTRAL_TOKEN} -scan"
+                            bat """sourceanalyzer \
+                                -Dcom.fortify.sca.ProjectRoot=.fortify \
+                                -Xmx5G \
+                                -b ${APPLICATION_REPORTING_API} \
+                                -logfile reporting-api-fortify.log \
+                                -debug -verbose \
+                                "${MSBUILD}" ${SOLUTION_FILE} /p:Configuration=Release"""
+                            bat """scancentral \
+                                -sscurl ${FORTIFY_URL} \
+                                -ssctoken ${FORTIFY_SCAN_CENTRAL_TOKEN} \
+                                start -projroot .fortify \
+                                -b ${APPLICATION_REPORTING_API} \
+                                -email ${SECURITY_CHAMPION_MAIL} \
+                                -f ${APPLICATION_REPORTING_API}.fpr \
+                                -log ${APPLICATION_REPORTING_API}-scan.log \
+                                -upload -application ${APPLICATION_REPORTING_API} \
+                                -version 0.0.${BUILD_NUMBER} \
+                                -uptoken ${FORTIFY_SCAN_CENTRAL_TOKEN} \
+                                -scan"""
                         } catch (err) {
                             bat "type reporting-api-fortify.log"
                             error "Fortify scan failed: ${err}"
@@ -225,7 +239,7 @@ pipeline {
             }
         }
 
-        stage('build EXE binaries') {
+        stage('Build EXE binaries') {
             steps {
                 script {
                     bat "if exist output rmdir /S /Q output"
@@ -261,6 +275,7 @@ pipeline {
                         url: "${ARTIFACTORY_URL}",
                         credentialsId: "${ARTIFACTORY_CREDS_ID}"
                     )
+
                     def uploadSpec = """{
                       "files": [{
                         "pattern": "${ZIP_NAME}.zip",
@@ -268,6 +283,7 @@ pipeline {
                         "props": "build.commit=${COMMIT_ID};build.version=${VERSION_NUMBER};build.branch=${BRANCH_NAME}"
                       }]
                     }"""
+
                     server.upload spec: uploadSpec, buildInfo: buildInfo
                     server.publishBuildInfo buildInfo
                 }
