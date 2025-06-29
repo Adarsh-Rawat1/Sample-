@@ -2,13 +2,15 @@
 @Library('jenkins-devops-cicd-library') _
 
 // ——————————————————————————————————————————————————————
-// Helpers to manage your Artifactory NuGet feeds
+// Artifactory / NuGet helper functions
 // ——————————————————————————————————————————————————————
 def ListNugetSourcesFromArtifactory() {
     try {
-        withCredentials([usernamePassword(credentialsId: 'STAR-ARTIFACTORY',
-                                          usernameVariable: 'USERNAME',
-                                          passwordVariable: 'PASSWORD')]) {
+        withCredentials([usernamePassword(
+            credentialsId: 'STAR-ARTIFACTORY',
+            usernameVariable: 'USERNAME',
+            passwordVariable: 'PASSWORD'
+        )]) {
             bat returnStdout: true, script: 'dotnet nuget list source'
         }
     } catch (err) {
@@ -18,9 +20,11 @@ def ListNugetSourcesFromArtifactory() {
 
 def RemoveNugetSourcesFromArtifactory(name) {
     try {
-        withCredentials([usernamePassword(credentialsId: 'STAR-ARTIFACTORY',
-                                          usernameVariable: 'USERNAME',
-                                          passwordVariable: 'PASSWORD')]) {
+        withCredentials([usernamePassword(
+            credentialsId: 'STAR-ARTIFACTORY',
+            usernameVariable: 'USERNAME',
+            passwordVariable: 'PASSWORD'
+        )]) {
             bat returnStdout: true, script: "dotnet nuget remove source ${name}"
         }
     } catch (err) {
@@ -28,13 +32,35 @@ def RemoveNugetSourcesFromArtifactory(name) {
     }
 }
 
+def UpdateNugetSourcesFromArtifactory(source, name) {
+    try {
+        withCredentials([usernamePassword(
+            credentialsId: 'STAR-ARTIFACTORY',
+            usernameVariable: 'USERNAME',
+            passwordVariable: 'PASSWORD'
+        )]) {
+            bat returnStdout: true, script: """
+                dotnet nuget update source ${name} \
+                    --source ${source} \
+                    --username ${USERNAME} \
+                    --password ${PASSWORD} \
+                    --store-password-in-clear-text
+            """
+        }
+    } catch (err) {
+        echo "Caught: ${err}"
+    }
+}
+
 def AddNugetSourcesFromArtifactory(source, name) {
-    // ensure old entry is gone
+    // remove any stale entry first
     RemoveNugetSourcesFromArtifactory(name)
     try {
-        withCredentials([usernamePassword(credentialsId: 'STAR-ARTIFACTORY',
-                                          usernameVariable: 'USERNAME',
-                                          passwordVariable: 'PASSWORD')]) {
+        withCredentials([usernamePassword(
+            credentialsId: 'STAR-ARTIFACTORY',
+            usernameVariable: 'USERNAME',
+            passwordVariable: 'PASSWORD'
+        )]) {
             bat returnStdout: true, script: """
                 dotnet nuget add source ${source} \
                     --name ${name} \
@@ -49,26 +75,28 @@ def AddNugetSourcesFromArtifactory(source, name) {
 }
 
 // ——————————————————————————————————————————————————————
-// Helpers for Artifactory upload & promotion
+// Artifactory promotion helpers
 // ——————————————————————————————————————————————————————
 def GenerateArtifactoryUploadSpecification(config) {
     def spec = [
-        pattern:  config.path,
-        target:   "${config.repository}/com/bnpparibas/${config.name}/${config.branch}/${config.version}/${config.fullname}",
-        props:    "build.commit=${env.GIT_COMMIT};build.version=${config.version};build.branch=${env.GIT_BRANCH}"
+        pattern:  config["path"],
+        target:   "${config["repository"]}/com/bnpparibas/${config["name"]}/${config["branch"]}/${config["version"]}/${config["fullname"]}",
+        props:    "build.commit=${env.GIT_COMMIT};build.version=${config["version"]};build.branch=${env.GIT_BRANCH}"
     ]
     return writeJSON(returnText: true, json: spec)
 }
 
 def PromotePackageToArtifactory(config) {
     try {
-        withCredentials([usernamePassword(credentialsId: 'STAR-ARTIFACTORY',
-                                          usernameVariable: 'USERNAME',
-                                          passwordVariable: 'PASSWORD')]) {
+        withCredentials([usernamePassword(
+            credentialsId: 'STAR-ARTIFACTORY',
+            usernameVariable: 'USERNAME',
+            passwordVariable: 'PASSWORD'
+        )]) {
             def buildInfo = Artifactory.newBuildInfo()
             buildInfo.env.capture = false
-            buildInfo.name   = config.name
-            buildInfo.number = config.version
+            buildInfo.name   = config["name"]
+            buildInfo.number = config["version"]
 
             def server = Artifactory.newServer(
                 url: 'https://artifactory.cib.echonet/artifactory',
@@ -78,7 +106,7 @@ def PromotePackageToArtifactory(config) {
                 "files":[${GenerateArtifactoryUploadSpecification(config)}]
             }"""
 
-            timeout(time:10, unit:'MINUTES') {
+            timeout(time: 10, unit: 'MINUTES') {
                 retry(3) {
                     server.upload spec: uploadSpec, buildInfo: buildInfo
                     server.publishBuildInfo buildInfo
@@ -91,123 +119,168 @@ def PromotePackageToArtifactory(config) {
 }
 
 // ——————————————————————————————————————————————————————
-// Star Trends Dashboard Pipeline
+// Pipeline for Star Trends Dashboard Reporting API
 // ——————————————————————————————————————————————————————
 pipeline {
     agent {
         node {
-            label 'windows_2016_VS_2022'
-            customWorkspace 'workspace/star'
+            label 'windows_2022_VS_2022'
+            customWorkspace 'workspace/star/reportingapi'
         }
+    }
+
+    options {
+        timestamps()
     }
 
     parameters {
         string(name: 'VersionNumberPrefix',
                defaultValue: '1.0.0',
-               description: 'Version prefix (will be appended with build number)')
+               description: 'e.g. 1.0.0')
         choice(name: 'Config',
-               choices: ['Release','Debug'],
+               choices: ['Release', 'Debug'],
                description: 'Build configuration')
     }
 
     environment {
-        // Git
-        PROJECT_REPOSITORY         = 'ssh://git@bitbucket.cib.echonet:7999/star/bnpp.star.utilities.git'
-        PROJECT_BRANCH             = 'Dev-StarTrends'
+        // project
+        PROJECT_NAME       = "bnpp.star.reporting.api"
+        ALL_PROJECTS       = "bnpp.star.data.extractor,bnpp.star.web.service"
+        SOLUTION_FILE      = "bnpp.reporting.api.sln"
+        CONFIG_FILE        = "build\\Nuget.config"
 
-        // Build
-        PROJECT_NAME               = 'star.trends.dashboard'
-        SOLUTION_FILE              = './StarTrends/StarTrendsDashboard/StarTrendsDashboard.sln'
-        VERSION_NUMBER             = "${VersionNumberPrefix}.${BUILD_NUMBER}"
-
-        // NuGet feeds
+        // Artifactory
+        ARTIFACTORY_CREDS_ID   = 'STAR-ARTIFACTORY'
+        ARTIFACTORY_URL        = "https://artifactory.cib.echonet/artifactory"
+        // these three feeds:
         STAR_NUGET_REPO_SOURCE     = 'https://artifactory.cib.echonet/artifactory/api/nuget/star-nuget'
         STAR_NUGET_REPO_NAME       = 'star-nuget'
         EXTERNAL_NUGET_REPO_SOURCE = 'https://artifactory.cib.echonet/artifactory/api/nuget/external-nuget-local'
         EXTERNAL_NUGET_REPO_NAME   = 'external-nuget-local'
         NUGET_REMOTE_CACHE_SOURCE  = 'https://artifactory.cib.echonet/artifactory/api/nuget/nuget-remote-cache'
         NUGET_REMOTE_CACHE_NAME    = 'nuget-remote-cache'
+
+        // Fortify
+        FORTIFY_URL             = "https://fortifyssc.cib.echonet/ssc"
+        SECURITY_CHAMPION_MAIL  = "harpreet.nanra@uk.bnpparibas.com"
+        APPLICATION_REPORTING_API = "STAR.HUDSON"
+
+        // MSBuild
+        MSBuild17 = tool 'MSBuild_17.0'
+        MSBUILD   = "${MSBuild17}"
     }
 
     stages {
-        stage('Setup Build Name') {
+
+        stage('Create needed folders') {
             steps {
-                script { currentBuild.displayName = VERSION_NUMBER }
+                bat 'if not exist "D:\\data\\reportingapi" mkdir "D:\\data\\reportingapi"'
             }
         }
 
-        stage('Checkout') {
+        stage('Get commitId and latest tag') {
             steps {
                 script {
-                    def git_details = checkout(
-                        [$class: 'GitSCM',
-                         branches: [[name: "*/${PROJECT_BRANCH}"]],
-                         userRemoteConfigs: [[
-                             url: PROJECT_REPOSITORY,
-                             credentialsId: 'STAR-BITBUCKET-SSH'
-                         ]]
-                        ]
-                    )
-                    env.GIT_URL    = git_details.GIT_URL
-                    env.GIT_BRANCH = git_details.GIT_BRANCH
-                    env.GIT_COMMIT = git_details.GIT_COMMIT
+                    env.COMMIT_ID = bat(returnStdout: true,
+                                       script: '@git rev-parse --short HEAD').trim()
+                    env.LATEST_TAG = bat(returnStdout: true,
+                                        script: '@git describe --always --abbrev=0').trim()
+                    echo "Application Version: ${VERSION_NUMBER}"
                 }
             }
         }
 
-        stage('Artifactory Source Setup') {
+        stage('Get artifact version') {
             steps {
                 script {
-                    def feeds = [
-                        [source: STAR_NUGET_REPO_SOURCE,     name: STAR_NUGET_REPO_NAME],
-                        [source: EXTERNAL_NUGET_REPO_SOURCE, name: EXTERNAL_NUGET_REPO_NAME],
-                        [source: NUGET_REMOTE_CACHE_SOURCE,  name: NUGET_REMOTE_CACHE_NAME]
-                    ]
-                    feeds.each { f ->
-                        AddNugetSourcesFromArtifactory(f.source, f.name)
+                    // compute version
+                    def base = ResolveVersion()
+                    env.VERSION_NUMBER = "${base}.${BUILD_NUMBER}"
+                    currentBuild.displayName = env.VERSION_NUMBER
+                    env.ZIP_NAME = "${PROJECT_NAME}-${VERSION_NUMBER}"
+                }
+            }
+        }
+
+        stage('Delete build directories') {
+            steps {
+                script {
+                    ALL_PROJECTS.tokenize(',').each { proj ->
+                        bat "if exist ${proj}\\bin rmdir /S /Q ${proj}\\bin"
                     }
-                    env.NUGET_SOURCE_ARGS = feeds.collect { "--source ${it.source}" }.join(' ')
                 }
             }
         }
 
-        stage('Show Workspace Contents') {
+        stage('Set dll/exe Version') {
+            steps {
+                powershell '''
+                Get-ChildItem . -Recurse -Filter *.csproj | ForEach-Object {
+                  (Get-Content $_.FullName) -replace '<Version>1.1.1.1</Version>',
+                    "<Version>$env:VERSION_NUMBER</Version><RuntimeIdentifier>win-x64</RuntimeIdentifier>" |
+                    Set-Content $_.FullName
+                }
+                '''
+            }
+        }
+
+        stage('Artifactory source setup') {
             steps {
                 script {
-                    def listing = bat(returnStdout:true, script:'dir /B /S')
-                    echo "Workspace files:\n${listing}"
+                    AddNugetSourcesFromArtifactory(STAR_NUGET_REPO_SOURCE,     STAR_NUGET_REPO_NAME)
+                    AddNugetSourcesFromArtifactory(EXTERNAL_NUGET_REPO_SOURCE, EXTERNAL_NUGET_REPO_NAME)
+                    AddNugetSourcesFromArtifactory(NUGET_REMOTE_CACHE_SOURCE,  NUGET_REMOTE_CACHE_NAME)
                 }
             }
         }
 
-        stage('Clean & Build') {
+        stage('Show content') {
+            steps {
+                script {
+                    echo bat(returnStdout:true, script:'dir /B /S')
+                }
+            }
+        }
+
+        stage('Clean previous build results') {
             steps {
                 dir('StarTrends/StarTrendsDashboard') {
-                    bat returnStdout:true, script: "dotnet clean --configuration ${params.Config}"
-                    bat returnStdout:true, script: """
-                        dotnet build \
-                          --configuration ${params.Config} \
-                          --property:Version=${VERSION_NUMBER} \
-                          ${env.NUGET_SOURCE_ARGS}
+                    bat returnStdout: true,
+                        script: "dotnet clean --configuration ${params.Config}"
+                }
+            }
+        }
+
+        stage('Build projects in the solution') {
+            steps {
+                dir('StarTrends/StarTrendsDashboard') {
+                    bat returnStdout: true, script: """
+                      dotnet build --configuration ${params.Config} \
+                        --property:Version=${VERSION_NUMBER} \
+                        --source ${STAR_NUGET_REPO_SOURCE} \
+                        --source ${EXTERNAL_NUGET_REPO_SOURCE} \
+                        --source ${NUGET_REMOTE_CACHE_SOURCE}
                     """
                 }
             }
         }
 
-        stage('Publish Solution') {
+        stage('Publish package solution') {
             steps {
                 script {
                     def projects = ['StarTrendsDashboard','StarTrendsDashboard.Shared']
-                    projects.each { proj ->
+                    projects.each { p ->
                         dir('StarTrends/StarTrendsDashboard') {
-                            bat returnStdout:true, script: """
-                                dotnet publish ${proj} \
-                                  --configuration ${params.Config} \
-                                  --property:Version=${VERSION_NUMBER} \
-                                  ${env.NUGET_SOURCE_ARGS} \
-                                  --self-contained true \
-                                  --use-current-runtime \
-                                  --output .\\Bin\\${VERSION_NUMBER}\\${proj}
+                            bat returnStdout: true, script: """
+                              dotnet publish ${p} \
+                                --configuration ${params.Config} \
+                                --property:Version=${VERSION_NUMBER} \
+                                --source ${STAR_NUGET_REPO_SOURCE} \
+                                --source ${EXTERNAL_NUGET_REPO_SOURCE} \
+                                --source ${NUGET_REMOTE_CACHE_SOURCE} \
+                                --self-contained true \
+                                --use-current-runtime true \
+                                --output .\\Bin\\${VERSION_NUMBER}\\${p}
                             """
                         }
                     }
@@ -215,28 +288,27 @@ pipeline {
             }
         }
 
-        stage('Package ZIP') {
+        stage('Build deployable package') {
             steps {
                 dir('StarTrends/StarTrendsDashboard') {
-                    bat "if exist .\\Bin\\${VERSION_NUMBER} rmdir /S /Q .\\Bin\\${VERSION_NUMBER}\\temp"
                     zip archive: true,
                         dir: ".\\Bin\\${VERSION_NUMBER}",
-                        zipFile: "${PROJECT_NAME}.${VERSION_NUMBER}.zip",
-                        overwrite: true
+                        overwrite: true,
+                        zipFile: "${PROJECT_NAME}.${VERSION_NUMBER}.zip"
                 }
             }
         }
 
-        stage('Promote to Artifactory') {
+        stage('Promote package to Artifactory') {
             steps {
                 script {
                     def cfg = [
                         repository: 'star-generic-local-dev',
                         name:       PROJECT_NAME,
-                        branch:     GIT_BRANCH,
+                        branch:     env.GIT_BRANCH,
                         version:    VERSION_NUMBER,
                         fullname:   "${PROJECT_NAME}.${VERSION_NUMBER}.zip",
-                        path:       "${WORKSPACE}\\${PROJECT_NAME}.${VERSION_NUMBER}.zip"
+                        path:       "${env.WORKSPACE}\\${PROJECT_NAME}.${VERSION_NUMBER}.zip"
                     ]
                     PromotePackageToArtifactory(cfg)
                 }
@@ -244,5 +316,4 @@ pipeline {
         }
     }
 }
-
 ```
