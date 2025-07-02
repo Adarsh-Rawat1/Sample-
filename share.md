@@ -1,5 +1,4 @@
 ```
-
 @Library('jenkins-devops-cicd-library') _
 
 def ResolveArtifactoryRepository() {
@@ -267,5 +266,4 @@ pipeline {
         }
     }
 }
-
 ```
