@@ -1,3 +1,4 @@
+```
 @Library('jenkins-devops-cicd-library@master') _
 
 def ResolveArtifactoryRepository() {
@@ -40,14 +41,11 @@ pipeline {
     
     options {
         timestamps()
-        gitConfig('git@bitbucket.cib.echonet:7999/star/bnpp.star.utilities.git', 'STAR-BITBUCKET-SSH')
         timeout(time: 60, unit: 'MINUTES')
+        gitConfig('git@bitbucket.cib.echonet:7999/star/bnpp.star.utilities.git', 'STAR-BITBUCKET-SSH')
     }    
 
     environment {
-        // Git configuration
-        GIT_SSH_COMMAND = 'ssh -o StrictHostKeyChecking=no -i /path/to/ssh/key'
-        
         // Project configuration
         PROJECT_NAME = "star.trends.dashboard"
         PROJECT_REPOSITORY = "ssh://git@bitbucket.cib.echonet:7999/star/bnpp.star.utilities.git"
@@ -61,9 +59,6 @@ pipeline {
         
         // Artifactory configuration
         ARTIFACTORY_CREDS_ID = 'STAR-ARTIFACTORY'
-        ARTIFACTORY_CREDS = credentials("${ARTIFACTORY_CREDS_ID}")
-        ARTIFACTORY_USER = "${ARTIFACTORY_CREDS_USR}"
-        ARTIFACTORY_PASS = "${ARTIFACTORY_CREDS_PSW}"
         ARTIFACTORY_URL = "https://artifactory.cib.echonet/artifactory"
         ARTIFACTORY_REPO = ResolveArtifactoryRepository()
         
@@ -74,7 +69,7 @@ pipeline {
         
         VERSION_NUMBER = "${ResolveVersion()}.${env.BUILD_NUMBER}"
         
-        // Fortify specific
+        // Fortify configuration
         FORTIFY_URL = "https://fortifyssc.cib.echonet/ssc"
         SECURITY_CHAMPION_MAIL = "security.champion@uk.bnpparibas.com"
         APPLICATION_NAME = "STAR.TRENDS.DASHBOARD"
@@ -90,12 +85,13 @@ pipeline {
             steps {
                 checkout([
                     $class: 'GitSCM',
-                    branches: [[name: "*/${PROJECT_BRANCH}"]],
+                    branches: [[name: "*/${env.BRANCH_NAME}"]],
                     extensions: [
                         [$class: 'RelativeTargetDirectory', relativeTargetDir: '.'],
                         [$class: 'CloneOption', depth: 1, noTags: false, shallow: true],
-                        [$class: 'LocalBranch', localBranch: "${PROJECT_BRANCH}"],
-                        [$class: 'UserIdentity', email: 'jenkins@ci.bnpparibas.com', name: 'Jenkins CI']
+                        [$class: 'LocalBranch', localBranch: "${env.BRANCH_NAME}"],
+                        [$class: 'UserIdentity', email: 'jenkins@ci.bnpparibas.com', name: 'Jenkins CI'],
+                        [$class: 'CleanBeforeCheckout']
                     ],
                     userRemoteConfigs: [[
                         credentialsId: 'STAR-BITBUCKET-SSH',
@@ -104,10 +100,10 @@ pipeline {
                 ])
                 
                 script {
-                    def gitCommit = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                    env.COMMIT_ID = gitCommit
-                    def gitTag = sh(script: 'git describe --tags --always', returnStdout: true).trim()
-                    env.LATEST_TAG = gitTag
+                    def gitCommit = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.GIT_COMMIT = gitCommit
+                    def gitTag = bat(script: 'git describe --tags --always', returnStdout: true).trim()
+                    env.GIT_TAG = gitTag
                 }
             }
         }
@@ -117,13 +113,13 @@ pipeline {
                 script {
                     currentBuild.displayName = "${VERSION_NUMBER}"
                     env.ZIP_NAME = "${PROJECT_NAME}-${VERSION_NUMBER}"
+                    
+                    // Create needed directories
+                    bat """
+                        if not exist "D:\\data\\trendsdashboard" mkdir "D:\\data\\trendsdashboard"
+                        if exist "output" rmdir /s /q "output"
+                    """
                 }
-                
-                // Create needed directories
-                bat """
-                    if not exist "D:\\data\\trendsdashboard" mkdir "D:\\data\\trendsdashboard"
-                    if exist "output" rmdir /s /q "output"
-                """
             }
         }
 
@@ -145,11 +141,13 @@ pipeline {
                     '''
                     
                     // Configure NuGet sources
-                    bat """
-                        nuget Sources Add -Name star-nuget -Source ${REPO_STAR_NUGET} -UserName ${ARTIFACTORY_USER} -Password ${ARTIFACTORY_PASS} -ConfigFile ${CONFIG_FILE}
-                        nuget Sources Add -Name external-nuget -Source ${REPO_EXTERNAL_NUGET} -UserName ${ARTIFACTORY_USER} -Password ${ARTIFACTORY_PASS} -ConfigFile ${CONFIG_FILE}
-                        nuget Sources Add -Name nuget-cache -Source ${REPO_NUGET_CACHE} -UserName ${ARTIFACTORY_USER} -Password ${ARTIFACTORY_PASS} -ConfigFile ${CONFIG_FILE}
-                    """
+                    withCredentials([usernamePassword(credentialsId: "${ARTIFACTORY_CREDS_ID}", usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_PASS')]) {
+                        bat """
+                            nuget Sources Add -Name star-nuget -Source ${REPO_STAR_NUGET} -UserName %ARTIFACTORY_USER% -Password %ARTIFACTORY_PASS% -ConfigFile ${CONFIG_FILE}
+                            nuget Sources Add -Name external-nuget -Source ${REPO_EXTERNAL_NUGET} -UserName %ARTIFACTORY_USER% -Password %ARTIFACTORY_PASS% -ConfigFile ${CONFIG_FILE}
+                            nuget Sources Add -Name nuget-cache -Source ${REPO_NUGET_CACHE} -UserName %ARTIFACTORY_USER% -Password %ARTIFACTORY_PASS% -ConfigFile ${CONFIG_FILE}
+                        """
+                    }
                     
                     // Restore packages
                     bat "dotnet restore ${SOLUTION_FILE} -r win-x64 --configfile ${CONFIG_FILE}"
@@ -157,7 +155,110 @@ pipeline {
             }
         }
 
-        // Remaining stages (Build, Test, Fortify, Publish, Deploy) would follow here
-        // ... [previous stages you had for build, test, fortify, etc.]
+        stage('Build') {
+            steps {
+                bat "dotnet build ${SOLUTION_FILE} -c Release --no-restore"
+            }
+        }
+
+        stage('Test') {
+            steps {
+                bat "dotnet test -c Release --no-build --no-restore"
+            }
+        }
+
+        stage('Fortify Scan') {
+            when {
+                expression { env.BRANCH_NAME == 'master' || env.BRANCH_NAME == 'release' }
+            }
+            steps {
+                withCredentials([
+                    string(credentialsId: 'fortify-rest-api-token-star', variable: 'FORTIFY_REST_API_TOKEN'),
+                    string(credentialsId: 'fortify-report-token-star', variable: 'FORTIFY_SCAN_CENTRAL_TOKEN')
+                ]) {
+                    script {
+                        try {
+                            bat """
+                                fortifyupdate -url ${FORTIFY_URL} -acceptSSLCertificate -acceptKey
+                                sourceanalyzer -Dcom.fortify.sca.ProjectRoot=.fortify -clean -b ${APPLICATION_NAME}
+                                sourceanalyzer -Dcom.fortify.sca.ProjectRoot=.fortify -Xmx5G -b ${APPLICATION_NAME} -logfile trends-dashboard-fortify.log -debug -verbose \"${MSBUILD}\" ${SOLUTION_FILE} /p:Configuration=Release
+                                scancentral -sscurl ${FORTIFY_URL} -ssctoken %FORTIFY_SCAN_CENTRAL_TOKEN% start -projroot .fortify -b ${APPLICATION_NAME} -email ${SECURITY_CHAMPION_MAIL} -f ${APPLICATION_NAME}.fpr -log ${APPLICATION_NAME}-scan.log -upload -application ${APPLICATION_NAME} -version ${NEW_VERSION} -uptoken %FORTIFY_SCAN_CENTRAL_TOKEN% -scan
+                            """
+                        } catch (error) {
+                            bat "type trends-dashboard-fortify.log"
+                            error "Fortify scan failed: ${error}"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Publish') {
+            steps {
+                script {
+                    ALL_PROJECTS.tokenize(',').each {
+                        dir("StarTrends\\StarTrendsDashboard\\${it}") {
+                            bat """
+                                dotnet publish --no-restore -c Release --self-contained true --use-current-runtime true -o ..\\..\\..\\output\\${it}
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Package') {
+            steps {
+                script {
+                    bat "IF EXIST \"${ZIP_NAME}.zip\" DEL /F \"${ZIP_NAME}.zip\""
+                    zip zipFile: "${ZIP_NAME}.zip", archive: false, dir: "output"
+                }
+            }
+        }
+
+        stage('Deploy to Artifactory') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: "${ARTIFACTORY_CREDS_ID}", usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_PASS')]) {
+                        def buildInfo = Artifactory.newBuildInfo()
+                        buildInfo.env.capture = false
+                        buildInfo.name = "${PROJECT_NAME}"
+                        buildInfo.number = "${VERSION_NUMBER}"
+
+                        def server = Artifactory.server('ARTIFACTORY')
+                        server.url = "${ARTIFACTORY_URL}"
+                        server.credentialsId = "${ARTIFACTORY_CREDS_ID}"
+
+                        def uploadSpec = """{
+                            "files": [{
+                                "pattern": "${ZIP_NAME}.zip",
+                                "target": "${ARTIFACTORY_REPO}/com/bnpparibas/${PROJECT_NAME}/${BRANCH_NAME}/${VERSION_NUMBER}/${ZIP_NAME}.zip",
+                                "props": "build.commit=${GIT_COMMIT};build.version=${VERSION_NUMBER};build.branch=${BRANCH_NAME}"
+                            }]
+                        }"""
+
+                        try {
+                            server.upload(uploadSpec, buildInfo)
+                            server.publishBuildInfo(buildInfo)
+                        } catch (err) {
+                            error "Failed to upload artifacts to Artifactory: ${err}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "Build ${VERSION_NUMBER} completed successfully"
+        }
+        failure {
+            echo "Build ${VERSION_NUMBER} failed"
+        }
     }
 }
+```
