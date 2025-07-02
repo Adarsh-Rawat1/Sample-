@@ -42,7 +42,7 @@ pipeline {
     options {
         timestamps()
         timeout(time: 60, unit: 'MINUTES')
-        gitConfig('git@bitbucket.cib.echonet:7999/star/bnpp.star.utilities.git', 'STAR-BITBUCKET-SSH')
+        skipDefaultCheckout() // We'll handle checkout manually
     }    
 
     environment {
@@ -85,13 +85,15 @@ pipeline {
             steps {
                 checkout([
                     $class: 'GitSCM',
-                    branches: [[name: "*/${env.BRANCH_NAME}"]],
+                    branches: [[name: "*/${BRANCH_NAME}"]],
                     extensions: [
                         [$class: 'RelativeTargetDirectory', relativeTargetDir: '.'],
                         [$class: 'CloneOption', depth: 1, noTags: false, shallow: true],
-                        [$class: 'LocalBranch', localBranch: "${env.BRANCH_NAME}"],
+                        [$class: 'LocalBranch', localBranch: "${BRANCH_NAME}"],
                         [$class: 'UserIdentity', email: 'jenkins@ci.bnpparibas.com', name: 'Jenkins CI'],
-                        [$class: 'CleanBeforeCheckout']
+                        [$class: 'CleanBeforeCheckout'],
+                        [$class: 'IgnoreNotifyCommit'],
+                        [$class: 'DisableRemotePoll']
                     ],
                     userRemoteConfigs: [[
                         credentialsId: 'STAR-BITBUCKET-SSH',
@@ -104,6 +106,7 @@ pipeline {
                     env.GIT_COMMIT = gitCommit
                     def gitTag = bat(script: 'git describe --tags --always', returnStdout: true).trim()
                     env.GIT_TAG = gitTag
+                    echo "Checked out commit: ${GIT_COMMIT} (tag: ${GIT_TAG})"
                 }
             }
         }
@@ -118,6 +121,7 @@ pipeline {
                     bat """
                         if not exist "D:\\data\\trendsdashboard" mkdir "D:\\data\\trendsdashboard"
                         if exist "output" rmdir /s /q "output"
+                        mkdir output
                     """
                 }
             }
@@ -157,7 +161,7 @@ pipeline {
 
         stage('Build') {
             steps {
-                bat "dotnet build ${SOLUTION_FILE} -c Release --no-restore"
+                bat "dotnet build ${SOLUTION_FILE} -c Release --no-restore -p:Version=${VERSION_NUMBER}"
             }
         }
 
@@ -169,7 +173,7 @@ pipeline {
 
         stage('Fortify Scan') {
             when {
-                expression { env.BRANCH_NAME == 'master' || env.BRANCH_NAME == 'release' }
+                expression { BRANCH_NAME == 'master' || BRANCH_NAME == 'release' }
             }
             steps {
                 withCredentials([
@@ -212,6 +216,7 @@ pipeline {
                 script {
                     bat "IF EXIST \"${ZIP_NAME}.zip\" DEL /F \"${ZIP_NAME}.zip\""
                     zip zipFile: "${ZIP_NAME}.zip", archive: false, dir: "output"
+                    archiveArtifacts artifacts: "${ZIP_NAME}.zip", fingerprint: true
                 }
             }
         }
@@ -240,6 +245,7 @@ pipeline {
                         try {
                             server.upload(uploadSpec, buildInfo)
                             server.publishBuildInfo(buildInfo)
+                            echo "Successfully deployed ${ZIP_NAME}.zip to Artifactory"
                         } catch (err) {
                             error "Failed to upload artifacts to Artifactory: ${err}"
                         }
@@ -251,14 +257,23 @@ pipeline {
 
     post {
         always {
-            cleanWs()
+            script {
+                echo "Cleaning up workspace"
+                cleanWs()
+            }
         }
         success {
             echo "Build ${VERSION_NUMBER} completed successfully"
         }
         failure {
             echo "Build ${VERSION_NUMBER} failed"
+            emailext (
+                subject: "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """Check console output at ${env.BUILD_URL}console""",
+                to: "${SECURITY_CHAMPION_MAIL}"
+            )
         }
     }
 }
+
 ```
