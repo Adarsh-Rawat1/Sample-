@@ -1,4 +1,5 @@
 ```
+
 @Library('jenkins-devops-cicd-library@master') _
 
 def ResolveArtifactoryRepository() {
@@ -42,7 +43,8 @@ pipeline {
     options {
         timestamps()
         timeout(time: 60, unit: 'MINUTES')
-        skipDefaultCheckout() // We'll handle checkout manually
+        skipDefaultCheckout()
+        preserveStashes() // Preserve stashes across builds
     }    
 
     environment {
@@ -67,13 +69,13 @@ pipeline {
         REPO_EXTERNAL_NUGET = "https://artifactory.cib.echonet/artifactory/api/nuget/external-nuget-local"
         REPO_NUGET_CACHE = "https://artifactory.cib.echonet/artifactory/api/nuget/nuget-remote-cache"
         
-        VERSION_NUMBER = "${ResolveVersion()}.${env.BUILD_NUMBER}"
+        // Version will be set in initialize stage
+        VERSION = ""
         
         // Fortify configuration
         FORTIFY_URL = "https://fortifyssc.cib.echonet/ssc"
         SECURITY_CHAMPION_MAIL = "security.champion@uk.bnpparibas.com"
         APPLICATION_NAME = "STAR.TRENDS.DASHBOARD"
-        NEW_VERSION = "0.0.${env.BUILD_NUMBER}"
         
         // Build tools
         MSBuild17 = tool 'MSBuild_17.0'
@@ -81,6 +83,26 @@ pipeline {
     }
 
     stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    // Set version early to ensure it's available in post section
+                    def baseVersion = ResolveVersion()
+                    env.VERSION_NUMBER = "${baseVersion}.${env.BUILD_NUMBER}"
+                    env.NEW_VERSION = "0.0.${env.BUILD_NUMBER}"
+                    currentBuild.displayName = "${env.VERSION_NUMBER}"
+                    env.ZIP_NAME = "${PROJECT_NAME}-${env.VERSION_NUMBER}"
+                    
+                    // Create needed directories
+                    bat """
+                        if not exist "D:\\data\\trendsdashboard" mkdir "D:\\data\\trendsdashboard"
+                        if exist "output" rmdir /s /q "output"
+                        mkdir output
+                    """
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
                 checkout([
@@ -111,167 +133,31 @@ pipeline {
             }
         }
 
-        stage('Initialize') {
-            steps {
-                script {
-                    currentBuild.displayName = "${VERSION_NUMBER}"
-                    env.ZIP_NAME = "${PROJECT_NAME}-${VERSION_NUMBER}"
-                    
-                    // Create needed directories
-                    bat """
-                        if not exist "D:\\data\\trendsdashboard" mkdir "D:\\data\\trendsdashboard"
-                        if exist "output" rmdir /s /q "output"
-                        mkdir output
-                    """
-                }
-            }
-        }
-
-        stage('Clean & Restore') {
-            steps {
-                script {
-                    // Clean build directories
-                    ALL_PROJECTS.tokenize(',').each {
-                        bat "IF EXIST ${it}\\bin RMDIR /S /Q ${it}\\bin"
-                    }
-                    
-                    // Set version in project files
-                    powershell '''
-                        $filePath = "./StarTrends/StarTrendsDashboard/*.csproj"
-                        Get-ChildItem $filePath -Recurse | ForEach-Object {
-                            $newVersionStr = "<Version>$env:VERSION_NUMBER</Version><RuntimeIdentifier>win-x64</RuntimeIdentifier>"
-                            (Get-Content $_).Replace('<Version>1.1.1.1</Version>',$newVersionStr) | Set-Content $_
-                        }
-                    '''
-                    
-                    // Configure NuGet sources
-                    withCredentials([usernamePassword(credentialsId: "${ARTIFACTORY_CREDS_ID}", usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_PASS')]) {
-                        bat """
-                            nuget Sources Add -Name star-nuget -Source ${REPO_STAR_NUGET} -UserName %ARTIFACTORY_USER% -Password %ARTIFACTORY_PASS% -ConfigFile ${CONFIG_FILE}
-                            nuget Sources Add -Name external-nuget -Source ${REPO_EXTERNAL_NUGET} -UserName %ARTIFACTORY_USER% -Password %ARTIFACTORY_PASS% -ConfigFile ${CONFIG_FILE}
-                            nuget Sources Add -Name nuget-cache -Source ${REPO_NUGET_CACHE} -UserName %ARTIFACTORY_USER% -Password %ARTIFACTORY_PASS% -ConfigFile ${CONFIG_FILE}
-                        """
-                    }
-                    
-                    // Restore packages
-                    bat "dotnet restore ${SOLUTION_FILE} -r win-x64 --configfile ${CONFIG_FILE}"
-                }
-            }
-        }
-
-        stage('Build') {
-            steps {
-                bat "dotnet build ${SOLUTION_FILE} -c Release --no-restore -p:Version=${VERSION_NUMBER}"
-            }
-        }
-
-        stage('Test') {
-            steps {
-                bat "dotnet test -c Release --no-build --no-restore"
-            }
-        }
-
-        stage('Fortify Scan') {
-            when {
-                expression { BRANCH_NAME == 'master' || BRANCH_NAME == 'release' }
-            }
-            steps {
-                withCredentials([
-                    string(credentialsId: 'fortify-rest-api-token-star', variable: 'FORTIFY_REST_API_TOKEN'),
-                    string(credentialsId: 'fortify-report-token-star', variable: 'FORTIFY_SCAN_CENTRAL_TOKEN')
-                ]) {
-                    script {
-                        try {
-                            bat """
-                                fortifyupdate -url ${FORTIFY_URL} -acceptSSLCertificate -acceptKey
-                                sourceanalyzer -Dcom.fortify.sca.ProjectRoot=.fortify -clean -b ${APPLICATION_NAME}
-                                sourceanalyzer -Dcom.fortify.sca.ProjectRoot=.fortify -Xmx5G -b ${APPLICATION_NAME} -logfile trends-dashboard-fortify.log -debug -verbose \"${MSBUILD}\" ${SOLUTION_FILE} /p:Configuration=Release
-                                scancentral -sscurl ${FORTIFY_URL} -ssctoken %FORTIFY_SCAN_CENTRAL_TOKEN% start -projroot .fortify -b ${APPLICATION_NAME} -email ${SECURITY_CHAMPION_MAIL} -f ${APPLICATION_NAME}.fpr -log ${APPLICATION_NAME}-scan.log -upload -application ${APPLICATION_NAME} -version ${NEW_VERSION} -uptoken %FORTIFY_SCAN_CENTRAL_TOKEN% -scan
-                            """
-                        } catch (error) {
-                            bat "type trends-dashboard-fortify.log"
-                            error "Fortify scan failed: ${error}"
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Publish') {
-            steps {
-                script {
-                    ALL_PROJECTS.tokenize(',').each {
-                        dir("StarTrends\\StarTrendsDashboard\\${it}") {
-                            bat """
-                                dotnet publish --no-restore -c Release --self-contained true --use-current-runtime true -o ..\\..\\..\\output\\${it}
-                            """
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Package') {
-            steps {
-                script {
-                    bat "IF EXIST \"${ZIP_NAME}.zip\" DEL /F \"${ZIP_NAME}.zip\""
-                    zip zipFile: "${ZIP_NAME}.zip", archive: false, dir: "output"
-                    archiveArtifacts artifacts: "${ZIP_NAME}.zip", fingerprint: true
-                }
-            }
-        }
-
-        stage('Deploy to Artifactory') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: "${ARTIFACTORY_CREDS_ID}", usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_PASS')]) {
-                        def buildInfo = Artifactory.newBuildInfo()
-                        buildInfo.env.capture = false
-                        buildInfo.name = "${PROJECT_NAME}"
-                        buildInfo.number = "${VERSION_NUMBER}"
-
-                        def server = Artifactory.server('ARTIFACTORY')
-                        server.url = "${ARTIFACTORY_URL}"
-                        server.credentialsId = "${ARTIFACTORY_CREDS_ID}"
-
-                        def uploadSpec = """{
-                            "files": [{
-                                "pattern": "${ZIP_NAME}.zip",
-                                "target": "${ARTIFACTORY_REPO}/com/bnpparibas/${PROJECT_NAME}/${BRANCH_NAME}/${VERSION_NUMBER}/${ZIP_NAME}.zip",
-                                "props": "build.commit=${GIT_COMMIT};build.version=${VERSION_NUMBER};build.branch=${BRANCH_NAME}"
-                            }]
-                        }"""
-
-                        try {
-                            server.upload(uploadSpec, buildInfo)
-                            server.publishBuildInfo(buildInfo)
-                            echo "Successfully deployed ${ZIP_NAME}.zip to Artifactory"
-                        } catch (err) {
-                            error "Failed to upload artifacts to Artifactory: ${err}"
-                        }
-                    }
-                }
-            }
-        }
+        // ... (keep all your other stages exactly the same) ...
     }
 
     post {
         always {
             script {
                 echo "Cleaning up workspace"
-                cleanWs()
+                node('windows_2022_VS_2022') {
+                    cleanWs()
+                }
             }
         }
         success {
-            echo "Build ${VERSION_NUMBER} completed successfully"
+            echo "Build ${currentBuild.displayName} completed successfully"
         }
         failure {
-            echo "Build ${VERSION_NUMBER} failed"
-            emailext (
-                subject: "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: """Check console output at ${env.BUILD_URL}console""",
-                to: "${SECURITY_CHAMPION_MAIL}"
-            )
+            script {
+                def displayName = currentBuild.displayName ?: "UNKNOWN_VERSION"
+                echo "Build ${displayName} failed"
+                emailext (
+                    subject: "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                    body: """Check console output at ${env.BUILD_URL}console""",
+                    to: "${SECURITY_CHAMPION_MAIL}"
+                )
+            }
         }
     }
 }
